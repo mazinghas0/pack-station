@@ -506,26 +506,34 @@ export default function StationWorkPage() {
         </div>
       )}
 
-      {/* 상태 메시지 */}
-      <div
-        className={`no-print px-4 py-2 text-center text-sm font-medium
-          ${statusType === 'success' ? 'text-green-400 bg-green-500/5' : ''}
-          ${statusType === 'error' ? 'text-red-400 bg-red-500/5' : ''}
-          ${statusType === 'info' ? 'text-gray-400' : ''}`}
-      >
-        {statusType === 'error' && <AlertTriangle className="inline w-4 h-4 mr-1" />}
-        {statusType === 'success' && <CheckCircle2 className="inline w-4 h-4 mr-1" />}
-        {statusMessage}
-      </div>
+      {/* 상태 메시지 — focusedProduct 없을 때만 표시 */}
+      {!focusedProduct && (
+        <div
+          className={`no-print px-4 py-2 text-center text-sm font-medium
+            ${statusType === 'success' ? 'text-green-400 bg-green-500/5' : ''}
+            ${statusType === 'error' ? 'text-red-400 bg-red-500/5' : ''}
+            ${statusType === 'info' ? 'text-gray-400' : ''}`}
+        >
+          {statusType === 'error' && <AlertTriangle className="inline w-4 h-4 mr-1" />}
+          {statusType === 'success' && <CheckCircle2 className="inline w-4 h-4 mr-1" />}
+          {statusMessage}
+        </div>
+      )}
 
-      {/* SKU 포커스 정보 바 */}
+      {/* SKU 포커스 정보 바 — 상태 메시지 통합 */}
       {focusedProduct && (
         <div className="no-print px-4 py-1.5 bg-yellow-500/10 border-b border-yellow-500/30 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <Package className="w-4 h-4 text-yellow-400 shrink-0" />
             <div className="min-w-0">
               <p className="text-yellow-300 font-bold text-sm truncate">{focusedProduct.productName}</p>
-              <p className="text-yellow-400/70 text-xs font-mono">{focusedProduct.productBarcode}</p>
+              <p className={`text-xs truncate
+                ${statusType === 'success' ? 'text-green-400' : ''}
+                ${statusType === 'error' ? 'text-red-400' : ''}
+                ${statusType === 'info' ? 'text-yellow-400/60 font-mono' : ''}`}
+              >
+                {statusType === 'info' ? focusedProduct.productBarcode : statusMessage}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-4 shrink-0 ml-3">
