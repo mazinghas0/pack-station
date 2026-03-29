@@ -2,10 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle } from 'lucide-react';
+import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
-import { assignWaybillToCell, subscribeToCells, getLatestUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
+import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
 import { playScanSuccess, playScanError } from '@/lib/sounds';
+import { useAuth } from '@/components/authProvider';
+import { canAccessAdmin } from '@/lib/auth';
 import PickingListModal from '@/components/pickingListModal';
 import SearchModal from '@/components/searchModal';
 
@@ -21,6 +23,7 @@ interface FocusedProduct {
 export default function StationWorkPage() {
   const params = useParams();
   const router = useRouter();
+  const { user: currentUser } = useAuth();
   const stationId = `station-${params.stationId}`;
   const stationNum = Number(params.stationId);
   const stationColor = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
@@ -40,31 +43,45 @@ export default function StationWorkPage() {
   const [focusedProduct, setFocusedProduct] = useState<FocusedProduct | null>(null);
   const [showPickingList, setShowPickingList] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [newBatchReady, setNewBatchReady] = useState(false);
 
-  /** 최신 업로드 ID 가져오기 */
+  /** 배차 ID 로딩 — 스테이션 전용 배차 우선, 없으면 활성 배차 사용 */
   useEffect(() => {
     (async () => {
-      const upload = await getLatestUpload();
-      if (upload) {
-        setUploadId(upload.id);
+      const [stationUploadId, activeUpload] = await Promise.all([
+        getStationUpload(stationId),
+        getActiveUpload(),
+      ]);
+
+      const resolvedId = stationUploadId ?? activeUpload?.id ?? null;
+
+      if (resolvedId) {
+        setUploadId(resolvedId);
+        await setStationUpload(stationId, resolvedId);
         setStatusMessage('운송장을 스캔하여 셀에 배정하세요');
+
+        /** 스테이션 배차와 활성 배차가 다르면 새 배차 알림 */
+        if (activeUpload && activeUpload.id !== resolvedId) {
+          setNewBatchReady(true);
+        }
       } else {
         setStatusMessage('관리자 페이지에서 엑셀을 먼저 업로드해주세요');
         setStatusType('error');
       }
     })();
-  }, []);
+  }, [stationId]);
 
-  /** Firebase 실시간 셀 구독 */
+  /** Firebase 실시간 셀 구독 — uploadId 확정 후에만 구독 시작 */
   useEffect(() => {
-    const unsubscribe = subscribeToCells(stationId, (firestoreCells) => {
+    if (!uploadId) return;
+    const unsubscribe = subscribeToCells(stationId, uploadId, (firestoreCells) => {
       setCells(firestoreCells);
       if (localCellCountRef.current === null) {
         localCellCountRef.current = firestoreCells.length;
       }
     });
     return () => unsubscribe();
-  }, [stationId]);
+  }, [stationId, uploadId]);
 
   /** 페이지 클릭 시 스캔 입력에 포커스 (모달 열린 상태에서는 제외) */
   useEffect(() => {
@@ -215,7 +232,7 @@ export default function StationWorkPage() {
     scanInputRef.current?.focus();
   }, []);
 
-  /** 배치 초기화 (요약 포함) */
+  /** 배치 초기화 (요약 포함) — 초기화 후 최신 활성 배차로 자동 전환 */
   const handleClearBatch = useCallback(async () => {
     const msg = scannedCount > 0
       ? `현재 배치 요약:\n• 총 ${batchSummary.total}셀\n• 완료 ${batchSummary.completed}셀\n• 보충대기 ${batchSummary.hold}셀\n• 작업중 ${batchSummary.pending}셀\n\n초기화하고 다음 배치를 시작하시겠습니까?`
@@ -226,7 +243,17 @@ export default function StationWorkPage() {
     localCellCountRef.current = 0;
     setFocusedProduct(null);
     setScanMode('waybill');
-    setStatusMessage('셀 초기화 완료. 새 배치 운송장을 스캔하세요.');
+
+    /** 초기화 시 최신 활성 배차로 자동 전환 */
+    const active = await getActiveUpload();
+    if (active) {
+      setUploadId(active.id);
+      await setStationUpload(stationId, active.id);
+      setNewBatchReady(false);
+      setStatusMessage('셀 초기화 완료. 새 배차 운송장을 스캔하세요.');
+    } else {
+      setStatusMessage('셀 초기화 완료. 새 배치 운송장을 스캔하세요.');
+    }
     setStatusType('info');
   }, [stationId, scannedCount, batchSummary]);
 
@@ -412,8 +439,25 @@ export default function StationWorkPage() {
               초기화
             </button>
           )}
+
+          {canAccessAdmin(currentUser) && (
+            <button
+              onClick={() => router.push('/admin')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">관리자</span>
+            </button>
+          )}
         </div>
       </header>
+
+      {/* 새 배차 알림 배너 */}
+      {newBatchReady && (
+        <div className="no-print px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 flex items-center justify-between">
+          <p className="text-blue-400 text-sm">새 배차가 준비됐습니다. 현재 작업 완료 후 초기화 버튼을 누르면 자동으로 전환됩니다.</p>
+        </div>
+      )}
 
       {/* 수동 입력 패널 */}
       {showManualInput && (

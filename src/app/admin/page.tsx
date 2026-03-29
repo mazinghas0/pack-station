@@ -428,7 +428,14 @@ export default function AdminPage() {
                     >
                       <div className="flex items-center gap-2 mb-3">
                         <Monitor className="w-4 h-4" style={{ color: color.primary }} />
-                        <span className="font-semibold text-white">스테이션 {stationNum}</span>
+                        <span className="font-semibold text-white flex-1">스테이션 {stationNum}</span>
+                        <button
+                          onClick={() => router.push(`/station/${stationNum}`)}
+                          className="text-xs px-2 py-0.5 rounded hover:opacity-80 transition-opacity font-medium"
+                          style={{ backgroundColor: color.primary + '30', color: color.primary }}
+                        >
+                          이동
+                        </button>
                       </div>
 
                       <div className="text-3xl font-bold text-white mb-1">

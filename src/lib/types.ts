@@ -174,6 +174,46 @@ export interface StationStat {
   avgBatchTimeMinutes: number;
 }
 
+/** 데일리 브리핑 */
+export interface DailyBriefing {
+  date: string;
+  batches: {
+    uploadId: string;
+    fileName: string;
+    uploadedAt: number;
+    totalWaybills: number;
+    totalQuantity: number;
+    totalSku: number;
+  }[];
+  stations: {
+    stationId: string;
+    processedWaybills: number;
+    totalQuantity: number;
+    holdCount: number;
+    firstScanAt: number | null;
+    lastScanAt: number | null;
+    workDurationMinutes: number | null;
+  }[];
+  totals: {
+    waybills: number;
+    quantity: number;
+    batchCount: number;
+  };
+  createdAt: number;
+}
+
+/** 업로드 요약 (다회차 배차 목록용) */
+export interface UploadSummary {
+  id: string;
+  fileName: string;
+  totalOrders: number;
+  totalQuantity: number;
+  uniqueProducts: number;
+  uniqueWaybills: number;
+  status: string;
+  createdAt: number;
+}
+
 /** 엑셀 파싱 결과 */
 export interface ParsedExcelData {
   orders: ParsedOrder[];
