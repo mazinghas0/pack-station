@@ -1,13 +1,37 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Package, Monitor, Settings } from 'lucide-react';
+import { Package, Monitor, Settings, LogOut, User } from 'lucide-react';
+import { useAuth } from '@/components/authProvider';
+import { logout, canAccessAdmin } from '@/lib/auth';
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, setUser } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    setUser(null);
+    router.push('/login');
+  };
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-black p-8">
+      {/* 우측 상단 사용자 정보 */}
+      <div className="absolute top-6 right-6 flex items-center gap-3">
+        <div className="flex items-center gap-2 text-gray-400">
+          <User className="w-4 h-4" />
+          <span className="text-sm">{user?.name} ({user?.role})</span>
+        </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          로그아웃
+        </button>
+      </div>
+
       <div className="text-center mb-16">
         <div className="flex items-center justify-center gap-3 mb-4">
           <Package className="w-12 h-12 text-blue-400" />
@@ -17,14 +41,17 @@ export default function HomePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl w-full">
-        <button
-          onClick={() => router.push('/admin')}
-          className="group flex flex-col items-center gap-4 p-10 rounded-2xl border-2 border-gray-700 hover:border-blue-500 bg-gray-900/50 hover:bg-gray-900 transition-all duration-200"
-        >
-          <Settings className="w-16 h-16 text-gray-400 group-hover:text-blue-400 transition-colors" />
-          <span className="text-2xl font-semibold text-gray-200 group-hover:text-white">관리자</span>
-          <span className="text-sm text-gray-500">엑셀 업로드 / 스테이션 관리 / 현황</span>
-        </button>
+        {/* 관리자 버튼 (마스터/관리자만) */}
+        {canAccessAdmin(user) && (
+          <button
+            onClick={() => router.push('/admin')}
+            className="group flex flex-col items-center gap-4 p-10 rounded-2xl border-2 border-gray-700 hover:border-blue-500 bg-gray-900/50 hover:bg-gray-900 transition-all duration-200"
+          >
+            <Settings className="w-16 h-16 text-gray-400 group-hover:text-blue-400 transition-colors" />
+            <span className="text-2xl font-semibold text-gray-200 group-hover:text-white">관리자</span>
+            <span className="text-sm text-gray-500">엑셀 업로드 / 스테이션 관리 / 현황</span>
+          </button>
+        )}
 
         <button
           onClick={() => router.push('/station')}
