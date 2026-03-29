@@ -310,21 +310,29 @@ export default function StationWorkPage() {
     return match ? match.requiredQuantity - match.packedQuantity : 0;
   };
 
-  const getCellStatusStyle = (cell: CellData | null): string => {
+  const getCellStatusStyle = (cell: CellData | null, cellNumber: number): string => {
+    const focused = isCellFocused(cellNumber);
+
+    if (focused) {
+      return 'border-yellow-400 bg-yellow-400/20 ring-2 ring-yellow-400 scale-[1.02] shadow-lg shadow-yellow-400/30';
+    }
+
     if (!cell) return 'border-gray-700/60 bg-gray-900/40';
+
+    const dimmed = focusedProduct ? ' opacity-40' : '';
 
     switch (cell.status) {
       case 'assigned':
-        return 'border-blue-500/70 bg-blue-500/10';
+        return 'border-blue-500/70 bg-blue-500/10' + dimmed;
       case 'packing':
-        return 'border-yellow-500 bg-yellow-500/10';
+        return 'border-yellow-500 bg-yellow-500/10' + dimmed;
       case 'completed':
-        return 'border-green-500/60 bg-green-500/10';
+        return 'border-green-500/60 bg-green-500/10' + dimmed;
       case 'hold':
       case 'replenish':
-        return 'border-orange-500 bg-orange-500/10 animate-pulse';
+        return 'border-orange-500 bg-orange-500/10 animate-pulse' + dimmed;
       default:
-        return 'border-blue-500/70 bg-blue-500/10';
+        return 'border-blue-500/70 bg-blue-500/10' + dimmed;
     }
   };
 
@@ -510,31 +518,63 @@ export default function StationWorkPage() {
         {statusMessage}
       </div>
 
+      {/* SKU 포커스 정보 바 */}
+      {focusedProduct && (
+        <div className="no-print px-4 py-1.5 bg-yellow-500/10 border-b border-yellow-500/30 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <Package className="w-4 h-4 text-yellow-400 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-yellow-300 font-bold text-sm truncate">{focusedProduct.productName}</p>
+              <p className="text-yellow-400/70 text-xs font-mono">{focusedProduct.productBarcode}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 shrink-0 ml-3">
+            <div className="text-center">
+              <p className="text-[10px] text-yellow-400/60">분배 셀</p>
+              <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.matchingCells.length}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-yellow-400/60">총 수량</p>
+              <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.totalQuantity}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 셀 그리드 (10x10) */}
       <div className="flex-1 p-3">
         <div className="grid grid-cols-10 gap-1.5 h-full">
           {Array.from({ length: 100 }, (_, i) => i + 1).map((cellNumber) => {
             const cell = getCellForNumber(cellNumber);
+            const focused = isCellFocused(cellNumber);
+            const focusQty = getFocusedQty(cellNumber);
 
             return (
               <div
                 key={cellNumber}
                 onClick={(e) => { if (cell) { e.stopPropagation(); setSelectedCell(cell); } }}
                 className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[60px] transition-all duration-200
-                  ${getCellStatusStyle(cell)}
+                  ${getCellStatusStyle(cell, cellNumber)}
+                  ${focused ? 'animate-pulse z-10' : ''}
                   ${cell ? 'cursor-pointer' : ''}`}
               >
                 {/* 셀 번호 */}
                 <span
-                  className="font-black leading-none text-2xl"
-                  style={{ color: cell ? getCellZoneColor(cellNumber) : getCellZoneColor(cellNumber) + '80' }}
+                  className={`font-black leading-none ${focused ? 'text-4xl' : 'text-2xl'}`}
+                  style={{ color: focused ? '#facc15' : cell ? getCellZoneColor(cellNumber) : getCellZoneColor(cellNumber) + '80' }}
                 >
                   {cellNumber}
                 </span>
 
+                {/* SKU 포커스 시 필요 수량 */}
+                {focused && (
+                  <span className="text-2xl font-black text-yellow-300 mt-0.5">
+                    x{focusQty}
+                  </span>
+                )}
+
                 {/* 배정된 셀 정보 */}
-                {cell && (
+                {cell && !focused && (
                   <>
                     <span className="text-[10px] text-gray-400 mt-0.5 truncate w-full text-center font-mono">
                       {cell.waybillNumber}
@@ -595,73 +635,6 @@ export default function StationWorkPage() {
       />
 
       {/* 셀 상세 모달 */}
-      {/* SKU 포커스 모달 — 상품 스캔 시 매칭 셀 카드 목록 */}
-      {focusedProduct && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => setFocusedProduct(null)}
-        >
-          <div
-            className="bg-gray-900 border border-yellow-500/40 rounded-2xl w-[92vw] max-w-4xl mx-4 overflow-hidden flex flex-col"
-            style={{ maxHeight: '88vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 모달 헤더 */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-yellow-500/20 bg-yellow-500/5 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <Package className="w-5 h-5 text-yellow-400 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-yellow-300 font-bold text-sm truncate">{focusedProduct.productName}</p>
-                  <p className="text-yellow-400/60 text-xs font-mono">{focusedProduct.productBarcode}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 shrink-0 ml-3">
-                <div className="text-center">
-                  <p className="text-[10px] text-yellow-400/60">분배 셀</p>
-                  <p className="text-xl font-black text-yellow-300 leading-none">{focusedProduct.matchingCells.length}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-[10px] text-yellow-400/60">총 수량</p>
-                  <p className="text-xl font-black text-yellow-300 leading-none">{focusedProduct.totalQuantity}</p>
-                </div>
-                <button
-                  onClick={() => setFocusedProduct(null)}
-                  className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white transition-colors ml-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* 셀 카드 목록 */}
-            <div className="overflow-y-auto p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {focusedProduct.matchingCells
-                  .slice()
-                  .sort((a, b) => a.cellNumber - b.cellNumber)
-                  .map((mc) => {
-                    const cell = getCellForNumber(mc.cellNumber);
-                    const isCompleted = cell?.status === 'completed';
-                    return (
-                      <div
-                        key={mc.cellNumber}
-                        className={`flex flex-col items-center justify-center rounded-2xl border-2 p-8 gap-3 transition-all
-                          ${isCompleted
-                            ? 'border-green-500/40 bg-green-500/10 opacity-60'
-                            : 'border-yellow-400/60 bg-yellow-400/10'}`}
-                      >
-                        <span className="text-8xl font-black text-yellow-300 leading-none">{mc.cellNumber}</span>
-                        <span className="text-3xl font-bold text-yellow-400">{mc.requiredQuantity}개</span>
-                        {isCompleted && <CheckCircle2 className="w-7 h-7 text-green-400" />}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {selectedCell && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
