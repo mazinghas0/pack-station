@@ -14,6 +14,8 @@ import {
   deleteDoc,
   runTransaction,
   type Unsubscribe,
+  type DocumentReference,
+  type DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type { ParsedOrder, ParsedExcelData, UploadSummary, DailyBriefing } from './types';
@@ -274,7 +276,7 @@ export async function autoAssignToStation(
   );
 
   /** 2. 운송장번호 기준으로 그룹핑 */
-  const waybillMap = new Map<string, Array<{ ref: ReturnType<typeof doc>; data: Record<string, unknown> }>>();
+  const waybillMap = new Map<string, Array<{ ref: DocumentReference<DocumentData>; data: Record<string, unknown> }>>();
   for (const d of pendingSnap.docs) {
     const wn = d.data().waybillNumber as string;
     if (!waybillMap.has(wn)) waybillMap.set(wn, []);
@@ -304,7 +306,7 @@ export async function autoAssignToStation(
   };
 
   /** 4. 셀/락/주문 업데이트 작업 목록 빌드 */
-  type WriteOp = { ref: ReturnType<typeof doc>; data: Record<string, unknown>; type: 'set' | 'update' };
+  type WriteOp = { ref: DocumentReference<DocumentData>; data: Record<string, unknown>; type: 'set' | 'update' };
   const ops: WriteOp[] = [];
 
   for (const [waybillNumber, orderDocs] of targetWaybills) {
@@ -350,7 +352,7 @@ export async function autoAssignToStation(
 
     for (const o of orderDocs) {
       ops.push({
-        ref: o.ref as ReturnType<typeof doc>,
+        ref: o.ref as DocumentReference<DocumentData>,
         type: 'update',
         data: { stationId, cellNumber, status: 'assigned' },
       });
@@ -476,7 +478,7 @@ export async function clearStationCells(stationId: string): Promise<void> {
 
   /** 셀 삭제 + 운송장 마커 삭제 (450개씩 배치 분할) */
   const batchSize = 450;
-  const allOps: { cellRef: ReturnType<typeof doc>; waybillNumber: string; uploadId: string | null }[] = [];
+  const allOps: { cellRef: DocumentReference<DocumentData>; waybillNumber: string; uploadId: string | null }[] = [];
 
   for (const docSnap of snapshot.docs) {
     const data = docSnap.data();
