@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield } from 'lucide-react';
+import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield, Maximize2, Minimize2 } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
 import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
 import { playScanSuccess, playScanError } from '@/lib/sounds';
@@ -44,6 +44,7 @@ export default function StationWorkPage() {
   const [showPickingList, setShowPickingList] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [newBatchReady, setNewBatchReady] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   /** 배차 ID 로딩 — 스테이션 전용 배차 우선, 없으면 활성 배차 사용 */
   useEffect(() => {
@@ -82,6 +83,21 @@ export default function StationWorkPage() {
     });
     return () => unsubscribe();
   }, [stationId, uploadId]);
+
+  /** 전체화면 상태 동기화 */
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
 
   /** 페이지 클릭 시 스캔 입력에 포커스 (모달 열린 상태에서는 제외) */
   useEffect(() => {
@@ -449,6 +465,14 @@ export default function StationWorkPage() {
               <span className="hidden sm:inline">관리자</span>
             </button>
           )}
+
+          <button
+            onClick={handleToggleFullscreen}
+            className="p-2 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white transition-colors"
+            title={isFullscreen ? '전체화면 해제' : '전체화면'}
+          >
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
         </div>
       </header>
 
