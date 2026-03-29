@@ -136,9 +136,9 @@ export default function StationWorkPage() {
       const currentCount = localCellCountRef.current ?? scannedCount;
       const nextCellNumber = currentCount + 1;
 
-      if (nextCellNumber > 100) {
+      if (nextCellNumber > TOTAL_CELLS) {
         playScanError();
-        setStatusMessage('100셀이 모두 배정되었습니다. 상품분배 모드로 전환하세요.');
+        setStatusMessage(`${TOTAL_CELLS}셀이 모두 배정되었습니다. 상품분배 모드로 전환하세요.`);
         setStatusType('error');
         return;
       }
@@ -379,7 +379,7 @@ export default function StationWorkPage() {
           <div className="text-center">
             <p className="text-xs text-gray-500">스캔</p>
             <p className="text-2xl font-bold text-white">
-              {scannedCount}<span className="text-sm text-gray-500">/100</span>
+              {scannedCount}<span className="text-sm text-gray-500">/{cells.length || TOTAL_CELLS}</span>
             </p>
           </div>
           {holdCount > 0 && (
@@ -391,7 +391,7 @@ export default function StationWorkPage() {
           <div className="w-36 h-3 rounded-full bg-gray-800">
             <div
               className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${(scannedCount / 100) * 100}%`, backgroundColor: stationColor.primary }}
+              style={{ width: `${(scannedCount / (cells.length || TOTAL_CELLS)) * 100}%`, backgroundColor: stationColor.primary }}
             />
           </div>
         </div>

@@ -27,8 +27,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<'upload' | 'briefing'>('upload');
   const [closingDay, setClosingDay] = useState(false);
   const [autoAssignConfig, setAutoAssignConfig] = useState([
-    { stationId: 'station-1', label: '스테이션 1', count: 100 },
-    { stationId: 'station-2', label: '스테이션 2', count: 100 },
+    { stationId: 'station-1', label: '스테이션 1', count: 99 },
+    { stationId: 'station-2', label: '스테이션 2', count: 99 },
   ]);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoAssignResult, setAutoAssignResult] = useState<string | null>(null);
