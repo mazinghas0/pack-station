@@ -145,20 +145,20 @@ export default function StationWorkPage() {
   };
 
   const getCellStatusStyle = (cell: CellData | null): string => {
-    if (!cell) return 'border-gray-800/50 bg-gray-900/20 opacity-30';
+    if (!cell) return 'border-gray-700/60 bg-gray-900/40';
 
     switch (cell.status) {
       case 'assigned':
-        return 'border-gray-600 bg-gray-900/60';
+        return 'border-blue-500/70 bg-blue-500/10';
       case 'packing':
         return 'border-yellow-500 bg-yellow-500/10';
       case 'completed':
-        return 'border-green-500/60 bg-green-500/5 opacity-50';
+        return 'border-green-500/60 bg-green-500/10';
       case 'hold':
       case 'replenish':
         return 'border-orange-500 bg-orange-500/10 animate-pulse';
       default:
-        return 'border-gray-600 bg-gray-900/60';
+        return 'border-blue-500/70 bg-blue-500/10';
     }
   };
 
@@ -276,7 +276,7 @@ export default function StationWorkPage() {
                 {/* 셀 번호 (대형) */}
                 <span
                   className="text-2xl font-black leading-none"
-                  style={{ color: cell ? getCellZoneColor(cellNumber) : getCellZoneColor(cellNumber) + '30' }}
+                  style={{ color: cell ? getCellZoneColor(cellNumber) : getCellZoneColor(cellNumber) + '80' }}
                 >
                   {cellNumber}
                 </span>
