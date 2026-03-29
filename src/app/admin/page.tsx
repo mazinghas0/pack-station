@@ -5,7 +5,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2,
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData, UploadSummary, DailyBriefing } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, autoAssignToStation, type StationSummary } from '@/lib/firestore';
 import { useAuth } from '@/components/authProvider';
 import { canManageAccounts } from '@/lib/auth';
 import AccountModal from '@/components/accountModal';
@@ -26,6 +26,12 @@ export default function AdminPage() {
   const [briefings, setBriefings] = useState<DailyBriefing[]>([]);
   const [activeTab, setActiveTab] = useState<'upload' | 'briefing'>('upload');
   const [closingDay, setClosingDay] = useState(false);
+  const [autoAssignConfig, setAutoAssignConfig] = useState([
+    { stationId: 'station-1', label: '스테이션 1', count: 100 },
+    { stationId: 'station-2', label: '스테이션 2', count: 100 },
+  ]);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [autoAssignResult, setAutoAssignResult] = useState<string | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const { user: currentUser } = useAuth();
 
@@ -156,6 +162,26 @@ export default function AdminPage() {
       setClosingDay(false);
     }
   }, []);
+
+  /** 자동 배차 — 미배차 운송장을 스테이션별로 지정 건수만큼 자동 셀 배정 */
+  const handleAutoAssign = useCallback(async () => {
+    if (!activeUploadId) return;
+    setAutoAssigning(true);
+    setAutoAssignResult(null);
+    try {
+      let totalAssigned = 0;
+      for (const cfg of autoAssignConfig) {
+        if (cfg.count <= 0) continue;
+        const result = await autoAssignToStation(activeUploadId, cfg.stationId, cfg.count);
+        totalAssigned += result.assigned;
+      }
+      setAutoAssignResult(`완료: 총 ${totalAssigned}건 자동 배차되었습니다.`);
+    } catch (err) {
+      setAutoAssignResult(`오류: ${err instanceof Error ? err.message : '자동 배차 실패'}`);
+    } finally {
+      setAutoAssigning(false);
+    }
+  }, [activeUploadId, autoAssignConfig]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -486,6 +512,68 @@ export default function AdminPage() {
             ) : (
               <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
                 <p className="text-gray-600">업로드 기록이 없습니다</p>
+              </div>
+            )}
+          </div>
+          {/* 자동 배차 */}
+          <div className="mt-8 md:mt-12">
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-lg md:text-xl font-semibold text-white">자동 배차</h2>
+              <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-500">사전 배치 / 테스트용</span>
+            </div>
+
+            {!activeUploadId ? (
+              <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
+                <p className="text-gray-600 text-sm">활성 배차가 없습니다. 먼저 엑셀을 업로드하세요.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-800 bg-gray-900/30 p-5 space-y-4">
+                <p className="text-sm text-gray-500">
+                  미배차 운송장을 스캔 없이 스테이션에 바로 배정합니다. 이미 배차된 운송장은 건너뜁니다.
+                </p>
+
+                {/* 스테이션별 건수 설정 */}
+                <div className="space-y-3">
+                  {autoAssignConfig.map((cfg, i) => (
+                    <div key={cfg.stationId} className="flex items-center gap-3">
+                      <span className="text-sm text-gray-300 w-24 shrink-0">{cfg.label}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={9999}
+                        value={cfg.count}
+                        onChange={(e) => {
+                          const next = [...autoAssignConfig];
+                          next[i] = { ...cfg, count: Math.max(0, Number(e.target.value)) };
+                          setAutoAssignConfig(next);
+                        }}
+                        className="w-24 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-white text-sm focus:outline-none focus:border-blue-500"
+                      />
+                      <span className="text-sm text-gray-500">건</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleAutoAssign}
+                  disabled={autoAssigning}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:bg-gray-800 disabled:text-gray-600"
+                >
+                  {autoAssigning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      배차 중...
+                    </>
+                  ) : (
+                    '자동 배차 실행'
+                  )}
+                </button>
+
+                {autoAssignResult && (
+                  <p className={`text-sm ${autoAssignResult.startsWith('오류') ? 'text-red-400' : 'text-green-400'}`}>
+                    {autoAssignResult}
+                  </p>
+                )}
               </div>
             )}
           </div>
