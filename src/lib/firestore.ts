@@ -30,7 +30,7 @@ export function cellNumberToLabel(n: number): string {
 }
 
 /** 총 셀 수 (12랙 × 9셀) */
-export const TOTAL_CELLS = 108;
+export const TOTAL_CELLS = 99;
 
 /** ========== 업로드 (엑셀 데이터 저장) ========== */
 

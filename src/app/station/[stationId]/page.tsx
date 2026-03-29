@@ -552,8 +552,8 @@ export default function StationWorkPage() {
       {/* 셀 그리드 (12랙 × 9셀) */}
       <div className="flex-1 p-3 overflow-auto">
         {/* 랙 헤더 행 */}
-        <div className="grid grid-cols-12 gap-1.5 mb-1">
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((rackNum) => (
+        <div className="grid grid-cols-11 gap-1.5 mb-1">
+          {Array.from({ length: 11 }, (_, i) => i + 1).map((rackNum) => (
             <div
               key={rackNum}
               className="text-center text-[10px] font-bold py-0.5 rounded"
@@ -565,7 +565,7 @@ export default function StationWorkPage() {
         </div>
 
         {/* 9행 × 12열 셀 */}
-        <div className="grid grid-cols-12 gap-1.5">
+        <div className="grid grid-cols-11 gap-1.5">
           {Array.from({ length: TOTAL_CELLS }, (_, i) => {
             const cellNumber = i + 1;
             const rack = Math.ceil(cellNumber / 9);
