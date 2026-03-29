@@ -113,6 +113,14 @@ export async function assignWaybillToCell(
   );
   const orderSnap = await getDocs(orderQuery);
 
+  /** 업로드 데이터에 없는 운송장 거부 */
+  if (orderSnap.empty) {
+    return {
+      success: false,
+      error: '출고 데이터에 없는 운송장입니다. 번호를 확인해주세요.',
+    };
+  }
+
   const products = orderSnap.docs.map((d) => {
     const data = d.data();
     return {

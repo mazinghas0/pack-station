@@ -5,7 +5,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2,
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, subscribeToAllStations, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getLatestUpload, subscribeToAllStations, type StationSummary } from '@/lib/firestore';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -17,6 +17,18 @@ export default function AdminPage() {
   const [parsedData, setParsedData] = useState<ParsedExcelData | null>(null);
   const [savedUploadId, setSavedUploadId] = useState<string | null>(null);
   const [stationStats, setStationStats] = useState<StationSummary[]>([]);
+  const [existingUpload, setExistingUpload] = useState<{ fileName: string; totalOrders: number; totalQuantity: number; uniqueProducts: number; uniqueWaybills: number } | null>(null);
+
+  /** 기존 업로드 기록 로드 */
+  useEffect(() => {
+    (async () => {
+      const upload = await getLatestUpload();
+      if (upload) {
+        setExistingUpload(upload);
+        setSavedUploadId(upload.id);
+      }
+    })();
+  }, []);
 
   /** 스테이션 현황 실시간 구독 */
   useEffect(() => {
@@ -196,18 +208,20 @@ export default function AdminPage() {
           <div className="space-y-6">
             <h2 className="text-xl font-semibold text-white">분석 결과</h2>
 
-            {parsedData ? (
+            {(parsedData || existingUpload) ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
                   <CheckCircle2 className="w-5 h-5 text-green-400" />
-                  <p className="text-green-400 font-medium">파싱 완료: {parsedData.fileName}</p>
+                  <p className="text-green-400 font-medium">
+                    {parsedData ? `파싱 완료: ${parsedData.fileName}` : `저장된 데이터: ${existingUpload?.fileName}`}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <StatCard label="총 운송장" value={parsedData.uniqueWaybills} unit="건" />
-                  <StatCard label="총 수량" value={parsedData.totalQuantity} unit="개" />
-                  <StatCard label="상품 종류" value={parsedData.uniqueProducts} unit="SKU" />
-                  <StatCard label="주문 라인" value={parsedData.orders.length} unit="행" />
+                  <StatCard label="총 운송장" value={parsedData?.uniqueWaybills ?? existingUpload?.uniqueWaybills ?? 0} unit="건" />
+                  <StatCard label="총 수량" value={parsedData?.totalQuantity ?? existingUpload?.totalQuantity ?? 0} unit="개" />
+                  <StatCard label="상품 종류" value={parsedData?.uniqueProducts ?? existingUpload?.uniqueProducts ?? 0} unit="SKU" />
+                  <StatCard label="주문 라인" value={parsedData?.orders.length ?? existingUpload?.totalOrders ?? 0} unit="행" />
                 </div>
 
                 {/* Firebase 저장 버튼 */}
