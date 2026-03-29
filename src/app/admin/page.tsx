@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor, UserPlus, Trash2, Shield } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
 import { saveUpload, getLatestUpload, subscribeToAllStations, type StationSummary } from '@/lib/firestore';
+import { useAuth } from '@/components/authProvider';
+import { getAllUsers, createAccount, updateUserRole, deleteAccount, canManageAccounts, type UserInfo, type UserRole } from '@/lib/auth';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -18,6 +20,13 @@ export default function AdminPage() {
   const [savedUploadId, setSavedUploadId] = useState<string | null>(null);
   const [stationStats, setStationStats] = useState<StationSummary[]>([]);
   const [existingUpload, setExistingUpload] = useState<{ fileName: string; totalOrders: number; totalQuantity: number; uniqueProducts: number; uniqueWaybills: number } | null>(null);
+  const [users, setUsers] = useState<UserInfo[]>([]);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState<UserRole>('worker');
+  const [accountMsg, setAccountMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { user: currentUser } = useAuth();
 
   /** 기존 업로드 기록 로드 */
   useEffect(() => {
@@ -29,6 +38,57 @@ export default function AdminPage() {
       }
     })();
   }, []);
+
+  /** 계정 목록 로드 */
+  useEffect(() => {
+    if (canManageAccounts(currentUser)) {
+      loadUsers();
+    }
+  }, [currentUser]);
+
+  const loadUsers = async () => {
+    const userList = await getAllUsers();
+    setUsers(userList);
+  };
+
+  const handleCreateAccount = async () => {
+    if (!newUsername.trim() || !newPassword.trim() || !newName.trim()) {
+      setAccountMsg({ type: 'error', text: '모든 항목을 입력해주세요.' });
+      return;
+    }
+    const result = await createAccount(newUsername.trim(), newPassword, newName.trim(), newRole, currentUser?.username || '');
+    if (result.success) {
+      setAccountMsg({ type: 'success', text: `${newName} 계정이 생성되었습니다.` });
+      setNewUsername('');
+      setNewPassword('');
+      setNewName('');
+      setNewRole('worker');
+      await loadUsers();
+    } else {
+      setAccountMsg({ type: 'error', text: result.error || '생성 실패' });
+    }
+  };
+
+  const handleDeleteAccount = async (username: string) => {
+    if (!confirm(`${username} 계정을 삭제하시겠습니까?`)) return;
+    const result = await deleteAccount(username);
+    if (result.success) {
+      setAccountMsg({ type: 'success', text: '계정이 삭제되었습니다.' });
+      await loadUsers();
+    } else {
+      setAccountMsg({ type: 'error', text: result.error || '삭제 실패' });
+    }
+  };
+
+  const handleRoleChange = async (username: string, role: UserRole) => {
+    const result = await updateUserRole(username, role);
+    if (result.success) {
+      setAccountMsg({ type: 'success', text: '역할이 변경되었습니다.' });
+      await loadUsers();
+    } else {
+      setAccountMsg({ type: 'error', text: result.error || '변경 실패' });
+    }
+  };
 
   /** 스테이션 현황 실시간 구독 */
   useEffect(() => {
@@ -318,6 +378,121 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+        {/* 계정 관리 (마스터/관리자만) */}
+        {canManageAccounts(currentUser) && (
+          <div className="mt-12">
+            <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+              <Shield className="w-5 h-5 text-blue-400" />
+              계정 관리
+            </h2>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* 좌측: 새 계정 생성 */}
+              <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/30">
+                <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-green-400" />
+                  새 계정 생성
+                </h3>
+
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="아이디"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="비밀번호"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="이름 (예: 홍길동)"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                  <select
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value as UserRole)}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="worker">작업자 (스테이션 작업만)</option>
+                    <option value="admin">관리자 (업로드 + 계정 관리)</option>
+                  </select>
+                  <button
+                    onClick={handleCreateAccount}
+                    className="w-full py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
+                  >
+                    계정 생성
+                  </button>
+                </div>
+
+                {accountMsg && (
+                  <div className={`mt-3 p-3 rounded-lg text-sm ${accountMsg.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                    {accountMsg.text}
+                  </div>
+                )}
+              </div>
+
+              {/* 우측: 계정 목록 */}
+              <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/30">
+                <h3 className="text-lg font-medium text-white mb-4">등록된 계정</h3>
+
+                {users.length > 0 ? (
+                  <div className="space-y-2">
+                    {users.map((u) => (
+                      <div
+                        key={u.username}
+                        className="flex items-center justify-between p-3 rounded-lg bg-gray-800/50 border border-gray-700/50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium
+                            ${u.role === 'master' ? 'bg-yellow-500/20 text-yellow-400' : ''}
+                            ${u.role === 'admin' ? 'bg-blue-500/20 text-blue-400' : ''}
+                            ${u.role === 'worker' ? 'bg-gray-500/20 text-gray-400' : ''}`}
+                          >
+                            {u.role === 'master' ? '마스터' : u.role === 'admin' ? '관리자' : '작업자'}
+                          </span>
+                          <div>
+                            <span className="text-white text-sm font-medium">{u.name}</span>
+                            <span className="text-gray-500 text-xs ml-2">@{u.username}</span>
+                          </div>
+                        </div>
+
+                        {u.role !== 'master' && currentUser?.role === 'master' && (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={u.role}
+                              onChange={(e) => handleRoleChange(u.username, e.target.value as UserRole)}
+                              className="px-2 py-1 rounded bg-gray-700 text-gray-300 text-xs border-none focus:outline-none"
+                            >
+                              <option value="worker">작업자</option>
+                              <option value="admin">관리자</option>
+                            </select>
+                            <button
+                              onClick={() => handleDeleteAccount(u.username)}
+                              className="p-1.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-colors"
+                              title="계정 삭제"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-600 text-sm">등록된 계정이 없습니다.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
