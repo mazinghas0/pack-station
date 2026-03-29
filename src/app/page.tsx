@@ -16,31 +16,31 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-black p-8">
+    <main className="min-h-screen flex flex-col items-center justify-center bg-black p-6 md:p-8">
       {/* 우측 상단 사용자 정보 */}
-      <div className="absolute top-6 right-6 flex items-center gap-3">
+      <div className="absolute top-4 right-4 md:top-6 md:right-6 flex items-center gap-2 md:gap-3">
         <div className="flex items-center gap-2 text-gray-400">
           <User className="w-4 h-4" />
-          <span className="text-sm">{user?.name} ({user?.role})</span>
+          <span className="text-xs md:text-sm">{user?.name} ({user?.role})</span>
         </div>
         <button
           onClick={handleLogout}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+          className="flex items-center gap-1 px-2 md:px-3 py-1.5 rounded-lg text-xs md:text-sm text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
         >
           <LogOut className="w-4 h-4" />
-          로그아웃
+          <span className="hidden sm:inline">로그아웃</span>
         </button>
       </div>
 
-      <div className="text-center mb-16">
+      <div className="text-center mb-10 md:mb-16">
         <div className="flex items-center justify-center gap-3 mb-4">
-          <Package className="w-12 h-12 text-blue-400" />
-          <h1 className="text-5xl font-bold text-white">Pack Station</h1>
+          <Package className="w-10 md:w-12 h-10 md:h-12 text-blue-400" />
+          <h1 className="text-3xl md:text-5xl font-bold text-white">Pack Station</h1>
         </div>
-        <p className="text-xl text-gray-400">합포장 오더분배 시스템</p>
+        <p className="text-lg md:text-xl text-gray-400">합포장 오더분배 시스템</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl w-full">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 max-w-2xl w-full">
         {/* 관리자 버튼 (마스터/관리자만) */}
         {canAccessAdmin(user) && (
           <button

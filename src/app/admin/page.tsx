@@ -112,33 +112,34 @@ export default function AdminPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-black p-6">
+    <main className="min-h-screen bg-black p-4 md:p-6">
       <div className="max-w-6xl mx-auto">
         {/* 헤더 */}
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex flex-wrap items-center gap-3 md:gap-4 mb-6 md:mb-8">
           <button
             onClick={() => router.push('/')}
             className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
           >
             <ArrowLeft className="w-6 h-6 text-gray-400" />
           </button>
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold text-white">관리자</h1>
-            <p className="text-gray-500">엑셀 업로드 및 스테이션 현황 모니터링</p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold text-white">관리자</h1>
+            <p className="text-gray-500 text-sm md:text-base">엑셀 업로드 및 스테이션 현황 모니터링</p>
           </div>
 
           {canManageAccounts(currentUser) && (
             <button
               onClick={() => setShowAccountModal(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-sm"
+              className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-sm"
             >
               <Shield className="w-4 h-4" />
-              계정 관리
+              <span className="hidden sm:inline">계정 관리</span>
+              <span className="sm:hidden">계정</span>
             </button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
           {/* 좌측: 엑셀 업로드 */}
           <div className="space-y-6">
             <h2 className="text-xl font-semibold text-white">출고 엑셀 업로드</h2>
@@ -232,7 +233,7 @@ export default function AdminPage() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4">
                   <StatCard label="총 운송장" value={parsedData?.uniqueWaybills ?? existingUpload?.uniqueWaybills ?? 0} unit="건" />
                   <StatCard label="총 수량" value={parsedData?.totalQuantity ?? existingUpload?.totalQuantity ?? 0} unit="개" />
                   <StatCard label="상품 종류" value={parsedData?.uniqueProducts ?? existingUpload?.uniqueProducts ?? 0} unit="SKU" />
@@ -280,11 +281,11 @@ export default function AdminPage() {
         </div>
 
         {/* 하단: 스테이션 실시간 현황 */}
-        <div className="mt-12">
-          <h2 className="text-xl font-semibold text-white mb-6">스테이션 실시간 현황</h2>
+        <div className="mt-8 md:mt-12">
+          <h2 className="text-lg md:text-xl font-semibold text-white mb-4 md:mb-6">스테이션 실시간 현황</h2>
 
           {stationStats.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
               {stationStats.map((stat) => {
                 const stationNum = parseInt(stat.stationId.replace('station-', ''));
                 const color = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
