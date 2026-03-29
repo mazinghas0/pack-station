@@ -550,7 +550,7 @@ export default function StationWorkPage() {
       )}
 
       {/* 셀 그리드 (12랙 × 9셀) */}
-      <div className="flex-1 p-3 overflow-auto">
+      <div className="flex-1 p-3 flex flex-col min-h-0">
         {/* 랙 헤더 행 */}
         <div className="grid grid-cols-11 gap-1.5 mb-1">
           {Array.from({ length: 11 }, (_, i) => i + 1).map((rackNum) => (
@@ -564,8 +564,8 @@ export default function StationWorkPage() {
           ))}
         </div>
 
-        {/* 9행 × 12열 셀 */}
-        <div className="grid grid-cols-11 gap-1.5">
+        {/* 9행 × 11열 셀 */}
+        <div className="flex-1 min-h-0 grid grid-cols-11 grid-rows-9 gap-1.5 h-full">
           {Array.from({ length: TOTAL_CELLS }, (_, i) => {
             const cellNumber = i + 1;
             const rack = Math.ceil(cellNumber / 9);
@@ -582,7 +582,7 @@ export default function StationWorkPage() {
                 key={cellNumber}
                 style={{ gridColumn: gridCol, gridRow: gridRow }}
                 onClick={(e) => { if (cell) { e.stopPropagation(); setSelectedCell(cell); } }}
-                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[58px] transition-all duration-200
+                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 transition-all duration-200
                   ${getCellStatusStyle(cell, cellNumber)}
                   ${focused ? 'animate-pulse z-10' : ''}
                   ${cell ? 'cursor-pointer' : ''}`}
