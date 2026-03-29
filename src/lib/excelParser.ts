@@ -6,29 +6,17 @@ import {
   DEFAULT_COLUMN_MAPPING,
 } from './types';
 
-/** 엑셀 파일 파싱 (암호화 해제 포함) */
+/** 엑셀 파일 파싱 (이미 복호화된 버퍼를 받음) */
 export function parseExcelBuffer(
-  buffer: ArrayBuffer,
-  password?: string,
+  buffer: Buffer | ArrayBuffer,
   customMapping?: Partial<ColumnMapping>
 ): ParsedExcelData {
   const mapping = { ...DEFAULT_COLUMN_MAPPING, ...customMapping };
 
-  /** 암호화된 엑셀 읽기 시도 */
-  let workbook: XLSX.WorkBook;
-  try {
-    workbook = XLSX.read(buffer, {
-      type: 'array',
-      password: password || 'skw',
-      codepage: 949,
-    });
-  } catch {
-    /** 비밀번호 없이 재시도 */
-    workbook = XLSX.read(buffer, {
-      type: 'array',
-      codepage: 949,
-    });
-  }
+  const workbook = XLSX.read(buffer, {
+    type: 'buffer',
+    codepage: 949,
+  });
 
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseExcelBuffer } from '@/lib/excelParser';
+import OfficeCrypto from 'officecrypto-tool';
 
 /** 엑셀 파일 업로드 + 파싱 API */
 export async function POST(request: NextRequest) {
@@ -25,11 +26,34 @@ export async function POST(request: NextRequest) {
     }
 
     /** 파일 버퍼 읽기 */
-    const buffer = await file.arrayBuffer();
-
-    /** 엑셀 파싱 (암호화 해제 포함) */
+    const rawBuffer = Buffer.from(await file.arrayBuffer());
     const excelPassword = password || process.env.EXCEL_DEFAULT_PASSWORD || '';
-    const parsedData = parseExcelBuffer(buffer, excelPassword);
+
+    /** 암호화 여부 확인 후 복호화 */
+    let decryptedBuffer: Buffer;
+    const isEncrypted = await OfficeCrypto.isEncrypted(rawBuffer);
+
+    if (isEncrypted) {
+      if (!excelPassword) {
+        return NextResponse.json(
+          { error: '암호화된 파일입니다. 비밀번호를 입력해주세요.' },
+          { status: 401 }
+        );
+      }
+      try {
+        decryptedBuffer = await OfficeCrypto.decrypt(rawBuffer, { password: excelPassword });
+      } catch {
+        return NextResponse.json(
+          { error: '엑셀 비밀번호가 올바르지 않습니다. 비밀번호를 확인해주세요.' },
+          { status: 401 }
+        );
+      }
+    } else {
+      decryptedBuffer = rawBuffer;
+    }
+
+    /** 복호화된 엑셀 파싱 */
+    const parsedData = parseExcelBuffer(decryptedBuffer);
     parsedData.fileName = file.name;
 
     return NextResponse.json({
@@ -38,14 +62,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '파일 파싱 중 오류가 발생했습니다.';
-
-    /** 비밀번호 오류 감지 */
-    if (message.includes('encrypt') || message.includes('password') || message.includes('Password')) {
-      return NextResponse.json(
-        { error: '엑셀 비밀번호가 올바르지 않습니다. 비밀번호를 확인해주세요.' },
-        { status: 401 }
-      );
-    }
 
     return NextResponse.json(
       { error: message },
