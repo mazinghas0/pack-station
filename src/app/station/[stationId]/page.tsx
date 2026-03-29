@@ -22,7 +22,8 @@ export default function StationWorkPage() {
   const [statusType, setStatusType] = useState<'info' | 'success' | 'error'>('info');
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualValue, setManualValue] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessingRef = useRef(false);
+  const localCellCountRef = useRef<number | null>(null);
 
   /** 최신 업로드 ID 가져오기 */
   useEffect(() => {
@@ -42,6 +43,10 @@ export default function StationWorkPage() {
   useEffect(() => {
     const unsubscribe = subscribeToCells(stationId, (firestoreCells) => {
       setCells(firestoreCells);
+      // 페이지 첫 로드 시 Firestore 기준으로 localCellCount 초기화
+      if (localCellCountRef.current === null) {
+        localCellCountRef.current = firestoreCells.length;
+      }
     });
     return () => unsubscribe();
   }, [stationId]);
@@ -59,27 +64,30 @@ export default function StationWorkPage() {
 
   /** 운송장 스캔 처리 */
   const processWaybillScan = useCallback(async (waybillNumber: string) => {
-    if (!uploadId || isProcessing) return;
+    if (!uploadId || isProcessingRef.current) return;
 
     const trimmed = waybillNumber.trim();
     if (!trimmed) return;
 
-    setIsProcessing(true);
+    isProcessingRef.current = true;
 
     try {
-      const nextCellNumber = scannedCount + 1;
+      // Firestore 구독 응답을 기다리지 않고 ref로 즉각 계산
+      const currentCount = localCellCountRef.current ?? scannedCount;
+      const nextCellNumber = currentCount + 1;
 
       if (nextCellNumber > 100) {
         playScanError();
         setStatusMessage('100셀이 모두 배정되었습니다. 배치를 완료해주세요.');
         setStatusType('error');
-        setIsProcessing(false);
         return;
       }
 
       const result = await assignWaybillToCell(stationId, nextCellNumber, trimmed, uploadId);
 
       if (result.success) {
+        // 성공 즉시 로컬 카운터 증가 (Firestore 응답 대기 없음)
+        localCellCountRef.current = nextCellNumber;
         playScanSuccess();
         setStatusMessage(`셀 ${nextCellNumber}번에 운송장 배정 완료 (${trimmed.slice(-6)})`);
         setStatusType('success');
@@ -96,9 +104,9 @@ export default function StationWorkPage() {
       setStatusMessage(err instanceof Error ? err.message : '스캔 처리 오류');
       setStatusType('error');
     } finally {
-      setIsProcessing(false);
+      isProcessingRef.current = false;
     }
-  }, [uploadId, stationId, scannedCount, isProcessing]);
+  }, [uploadId, stationId, scannedCount]);
 
   /** 스캔 입력 (바코드 스캐너 = Enter 키) */
   const handleScan = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -120,6 +128,7 @@ export default function StationWorkPage() {
   const handleClearBatch = useCallback(async () => {
     if (!confirm('현재 스테이션의 모든 셀을 초기화하시겠습니까?\n(다음 배치 시작 시 사용)')) return;
     await clearStationCells(stationId);
+    localCellCountRef.current = 0;
     setStatusMessage('셀 초기화 완료. 새 배치를 시작하세요.');
     setStatusType('info');
   }, [stationId]);
