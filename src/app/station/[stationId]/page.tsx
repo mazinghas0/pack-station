@@ -520,22 +520,22 @@ export default function StationWorkPage() {
 
       {/* SKU 포커스 정보 바 */}
       {focusedProduct && (
-        <div className="no-print px-4 py-3 bg-yellow-500/10 border-b border-yellow-500/30 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Package className="w-6 h-6 text-yellow-400" />
-            <div>
-              <p className="text-yellow-300 font-bold text-lg">{focusedProduct.productName}</p>
-              <p className="text-yellow-400/70 text-xs">{focusedProduct.productBarcode}</p>
+        <div className="no-print px-4 py-1.5 bg-yellow-500/10 border-b border-yellow-500/30 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <Package className="w-4 h-4 text-yellow-400 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-yellow-300 font-bold text-sm truncate">{focusedProduct.productName}</p>
+              <p className="text-yellow-400/70 text-xs font-mono">{focusedProduct.productBarcode}</p>
             </div>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 shrink-0 ml-3">
             <div className="text-center">
-              <p className="text-xs text-yellow-400/60">분배 셀</p>
-              <p className="text-2xl font-black text-yellow-300">{focusedProduct.matchingCells.length}</p>
+              <p className="text-[10px] text-yellow-400/60">분배 셀</p>
+              <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.matchingCells.length}</p>
             </div>
             <div className="text-center">
-              <p className="text-xs text-yellow-400/60">총 수량</p>
-              <p className="text-2xl font-black text-yellow-300">{focusedProduct.totalQuantity}</p>
+              <p className="text-[10px] text-yellow-400/60">총 수량</p>
+              <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.totalQuantity}</p>
             </div>
           </div>
         </div>
@@ -553,7 +553,7 @@ export default function StationWorkPage() {
               <div
                 key={cellNumber}
                 onClick={(e) => { if (cell) { e.stopPropagation(); setSelectedCell(cell); } }}
-                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[80px] transition-all duration-200
+                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[60px] transition-all duration-200
                   ${getCellStatusStyle(cell, cellNumber)}
                   ${focused ? 'animate-pulse z-10' : ''}
                   ${cell ? 'cursor-pointer' : ''}`}
