@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield, Maximize2, Minimize2, X } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
 import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
 import { playScanSuccess, playScanError } from '@/lib/sounds';
@@ -45,6 +45,7 @@ export default function StationWorkPage() {
   const [showSearch, setShowSearch] = useState(false);
   const [newBatchReady, setNewBatchReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedCell, setSelectedCell] = useState<CellData | null>(null);
 
   /** 배차 ID 로딩 — 스테이션 전용 배차 우선, 없으면 활성 배차 사용 */
   useEffect(() => {
@@ -551,9 +552,11 @@ export default function StationWorkPage() {
             return (
               <div
                 key={cellNumber}
+                onClick={(e) => { if (cell) { e.stopPropagation(); setSelectedCell(cell); } }}
                 className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[80px] transition-all duration-200
                   ${getCellStatusStyle(cell, cellNumber)}
-                  ${focused ? 'animate-pulse z-10' : ''}`}
+                  ${focused ? 'animate-pulse z-10' : ''}
+                  ${cell ? 'cursor-pointer' : ''}`}
               >
                 {/* 셀 번호 */}
                 <span
@@ -630,6 +633,101 @@ export default function StationWorkPage() {
         isOpen={showSearch}
         onClose={() => setShowSearch(false)}
       />
+
+      {/* 셀 상세 모달 */}
+      {selectedCell && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setSelectedCell(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md mx-4 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">셀 {selectedCell.cellNumber}번</p>
+                <p className="text-lg font-bold text-white font-mono">{selectedCell.waybillNumber}</p>
+                <p className="text-sm text-gray-400">{selectedCell.customerName}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* 셀 상태 배지 */}
+                {selectedCell.status === 'completed' && (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">
+                    <CheckCircle2 className="w-3 h-3" /> 완료
+                  </span>
+                )}
+                {selectedCell.status === 'hold' && (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400">
+                    <PauseCircle className="w-3 h-3" /> 보충대기
+                  </span>
+                )}
+                {selectedCell.status === 'pending' && (
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
+                    <Package className="w-3 h-3" /> 작업중
+                  </span>
+                )}
+                <button
+                  onClick={() => setSelectedCell(null)}
+                  className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* 수량 요약 */}
+            <div className="flex gap-4 px-5 py-3 bg-gray-800/50 border-b border-gray-800">
+              <div className="text-center">
+                <p className="text-xs text-gray-500">총 수량</p>
+                <p className="text-xl font-bold text-white">{selectedCell.totalQuantity}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-gray-500">포장 완료</p>
+                <p className="text-xl font-bold text-green-400">{selectedCell.packedQuantity}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-gray-500">SKU</p>
+                <p className="text-xl font-bold text-gray-300">{selectedCell.packedSkuCount}/{selectedCell.totalSkuCount}</p>
+              </div>
+            </div>
+
+            {/* 상품 목록 */}
+            <div className="max-h-64 overflow-y-auto">
+              {selectedCell.products.map((product, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-center justify-between px-5 py-3 border-b border-gray-800/50 ${
+                    product.status === 'completed' ? 'opacity-50' : ''
+                  }`}
+                >
+                  <div className="flex-1 min-w-0 mr-3">
+                    <p className="text-sm text-white truncate">{product.productName}</p>
+                    <p className="text-xs text-gray-500 font-mono">{product.productBarcode}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-bold text-white">
+                      {product.packedQuantity}<span className="text-gray-500">/{product.requiredQuantity}</span>
+                    </span>
+                    {product.status === 'completed' && (
+                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 배송 메모 */}
+            {selectedCell.deliveryMemo && (
+              <div className="px-5 py-3 bg-yellow-500/5 border-t border-yellow-500/20">
+                <p className="text-xs text-yellow-400/70">배송 메모</p>
+                <p className="text-sm text-yellow-300">{selectedCell.deliveryMemo}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
