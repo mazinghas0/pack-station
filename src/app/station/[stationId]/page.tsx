@@ -602,8 +602,8 @@ export default function StationWorkPage() {
           onClick={() => setFocusedProduct(null)}
         >
           <div
-            className="bg-gray-900 border border-yellow-500/40 rounded-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col"
-            style={{ maxHeight: '80vh' }}
+            className="bg-gray-900 border border-yellow-500/40 rounded-2xl w-[92vw] max-w-4xl mx-4 overflow-hidden flex flex-col"
+            style={{ maxHeight: '88vh' }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* 모달 헤더 */}
@@ -635,7 +635,7 @@ export default function StationWorkPage() {
 
             {/* 셀 카드 목록 */}
             <div className="overflow-y-auto p-4">
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
                 {focusedProduct.matchingCells
                   .slice()
                   .sort((a, b) => a.cellNumber - b.cellNumber)
@@ -645,18 +645,18 @@ export default function StationWorkPage() {
                     return (
                       <div
                         key={mc.cellNumber}
-                        className={`flex flex-col items-center justify-center rounded-xl border-2 p-3 gap-1 transition-all
+                        className={`flex flex-col items-center justify-center rounded-xl border-2 p-4 gap-1.5 transition-all
                           ${isCompleted
                             ? 'border-green-500/40 bg-green-500/10 opacity-60'
                             : 'border-yellow-400/60 bg-yellow-400/10'}`}
                       >
-                        <span className="text-3xl font-black text-yellow-300 leading-none">{mc.cellNumber}</span>
-                        <div className="flex items-center gap-1 text-sm">
+                        <span className="text-4xl font-black text-yellow-300 leading-none">{mc.cellNumber}</span>
+                        <div className="flex items-center gap-1 text-base">
                           <span className="text-white font-bold">{mc.packedQuantity}</span>
                           <span className="text-gray-500">/</span>
                           <span className="text-yellow-400 font-bold">{mc.requiredQuantity}</span>
                         </div>
-                        {isCompleted && <CheckCircle2 className="w-4 h-4 text-green-400" />}
+                        {isCompleted && <CheckCircle2 className="w-5 h-5 text-green-400" />}
                       </div>
                     );
                   })}
