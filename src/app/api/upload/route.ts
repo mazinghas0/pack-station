@@ -1,9 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseExcelBuffer } from '@/lib/excelParser';
 import OfficeCrypto from 'officecrypto-tool';
+import { rateLimit } from '@/lib/rateLimit';
 
 /** 엑셀 파일 업로드 + 파싱 API */
 export async function POST(request: NextRequest) {
+  /** Rate Limiting: IP 기준 1분에 10회 */
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  const rl = rateLimit(`upload:${ip}`, 10, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+      }
+    );
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;

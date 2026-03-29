@@ -85,7 +85,7 @@ export async function login(
     };
 
     /** 세션 저장 */
-    localStorage.setItem('pack_station_user', JSON.stringify(user));
+    sessionStorage.setItem('pack_station_user', JSON.stringify(user));
 
     return { success: true, user };
   } catch {
@@ -95,13 +95,13 @@ export async function login(
 
 /** 로그아웃 */
 export function logout(): void {
-  localStorage.removeItem('pack_station_user');
+  sessionStorage.removeItem('pack_station_user');
 }
 
 /** 현재 로그인된 사용자 조회 */
 export function getCurrentUser(): UserInfo | null {
   if (typeof window === 'undefined') return null;
-  const stored = localStorage.getItem('pack_station_user');
+  const stored = sessionStorage.getItem('pack_station_user');
   if (!stored) return null;
   try {
     return JSON.parse(stored) as UserInfo;
