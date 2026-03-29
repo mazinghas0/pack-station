@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { getCurrentUser, initMasterAccount, type UserInfo } from '@/lib/auth';
+import { getCurrentUser, type UserInfo } from '@/lib/auth';
 
 interface AuthContextType {
   user: UserInfo | null;
@@ -28,13 +28,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      /** 마스터 계정 초기화 */
-      try {
-        await initMasterAccount();
-      } catch {
-        /** Firebase 미연결 시 무시 */
-      }
-
       /** 저장된 세션 확인 */
       const currentUser = getCurrentUser();
       setUser(currentUser);
