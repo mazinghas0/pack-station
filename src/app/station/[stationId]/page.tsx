@@ -635,7 +635,7 @@ export default function StationWorkPage() {
 
             {/* 셀 카드 목록 */}
             <div className="overflow-y-auto p-4">
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {focusedProduct.matchingCells
                   .slice()
                   .sort((a, b) => a.cellNumber - b.cellNumber)
@@ -645,18 +645,14 @@ export default function StationWorkPage() {
                     return (
                       <div
                         key={mc.cellNumber}
-                        className={`flex flex-col items-center justify-center rounded-xl border-2 p-4 gap-1.5 transition-all
+                        className={`flex flex-col items-center justify-center rounded-2xl border-2 p-8 gap-3 transition-all
                           ${isCompleted
                             ? 'border-green-500/40 bg-green-500/10 opacity-60'
                             : 'border-yellow-400/60 bg-yellow-400/10'}`}
                       >
-                        <span className="text-4xl font-black text-yellow-300 leading-none">{mc.cellNumber}</span>
-                        <div className="flex items-center gap-1 text-base">
-                          <span className="text-white font-bold">{mc.packedQuantity}</span>
-                          <span className="text-gray-500">/</span>
-                          <span className="text-yellow-400 font-bold">{mc.requiredQuantity}</span>
-                        </div>
-                        {isCompleted && <CheckCircle2 className="w-5 h-5 text-green-400" />}
+                        <span className="text-8xl font-black text-yellow-300 leading-none">{mc.cellNumber}</span>
+                        <span className="text-3xl font-bold text-yellow-400">{mc.requiredQuantity}개</span>
+                        {isCompleted && <CheckCircle2 className="w-7 h-7 text-green-400" />}
                       </div>
                     );
                   })}
