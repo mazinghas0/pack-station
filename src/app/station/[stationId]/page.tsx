@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield, Maximize2, Minimize2, X } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
-import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, cellNumberToLabel, TOTAL_CELLS, type CellData } from '@/lib/firestore';
+import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, completeSkuForCells, cellNumberToLabel, TOTAL_CELLS, type CellData } from '@/lib/firestore';
 import { playScanSuccess, playScanError } from '@/lib/sounds';
 import { useAuth } from '@/components/authProvider';
 import { canAccessAdmin } from '@/lib/auth';
@@ -167,10 +167,27 @@ export default function StationWorkPage() {
     }
   }, [uploadId, stationId, scannedCount]);
 
+  /** ===== SKU 패킹 완료 처리 ===== */
+  const handleCompleteSku = useCallback(async () => {
+    if (!focusedProduct) return;
+    const cellNumbers = focusedProduct.matchingCells.map((c) => c.cellNumber);
+    await completeSkuForCells(stationId, cellNumbers, focusedProduct.productBarcode, cells);
+    playScanSuccess();
+    setStatusMessage(`${focusedProduct.productName} 패킹 완료 처리됐습니다.`);
+    setStatusType('success');
+    setFocusedProduct(null);
+  }, [focusedProduct, stationId, cells]);
+
   /** ===== SKU 스캔 처리 ===== */
   const processSkuScan = useCallback((barcode: string) => {
     const trimmed = barcode.trim();
     if (!trimmed) return;
+
+    /** 동일 바코드 재스캔 → 완료 처리 */
+    if (focusedProduct && focusedProduct.productBarcode === trimmed) {
+      handleCompleteSku();
+      return;
+    }
 
     const matchingCells: FocusedProduct['matchingCells'] = [];
     let productName = '';
@@ -208,7 +225,7 @@ export default function StationWorkPage() {
     });
     setStatusMessage(`${productName} — ${matchingCells.length}개 셀에 총 ${totalQty}개 분배`);
     setStatusType('success');
-  }, [cells]);
+  }, [cells, focusedProduct, handleCompleteSku]);
 
   /** 통합 스캔 핸들러 */
   const handleScan = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -536,7 +553,7 @@ export default function StationWorkPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-4 shrink-0 ml-3">
+          <div className="flex items-center gap-3 shrink-0 ml-3">
             <div className="text-center">
               <p className="text-[10px] text-yellow-400/60">분배 셀</p>
               <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.matchingCells.length}</p>
@@ -545,6 +562,19 @@ export default function StationWorkPage() {
               <p className="text-[10px] text-yellow-400/60">총 수량</p>
               <p className="text-lg font-black text-yellow-300 leading-none">{focusedProduct.totalQuantity}</p>
             </div>
+            <button
+              onClick={handleCompleteSku}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-bold transition-colors"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              완료
+            </button>
+            <button
+              onClick={() => setFocusedProduct(null)}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

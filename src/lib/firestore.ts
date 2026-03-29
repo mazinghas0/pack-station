@@ -486,6 +486,41 @@ export async function getStationUpload(stationId: string): Promise<string | null
 /** ========== 배치 초기화 ========== */
 
 /** 스테이션의 모든 셀 초기화 (다음 배치 시작) */
+/** SKU 바코드 기준으로 해당 셀들의 패킹 완료 처리 */
+export async function completeSkuForCells(
+  stationId: string,
+  cellNumbers: number[],
+  productBarcode: string,
+  currentCells: CellData[]
+): Promise<void> {
+  const batch = writeBatch(db);
+
+  for (const cellNumber of cellNumbers) {
+    const cell = currentCells.find((c) => c.cellNumber === cellNumber);
+    if (!cell) continue;
+
+    const updatedProducts = cell.products.map((p) =>
+      p.productBarcode === productBarcode
+        ? { ...p, packedQuantity: p.requiredQuantity, status: 'completed' }
+        : p
+    );
+
+    const packedSkuCount = updatedProducts.filter((p) => p.packedQuantity >= p.requiredQuantity).length;
+    const packedQuantity = updatedProducts.reduce((sum, p) => sum + p.packedQuantity, 0);
+    const allComplete = packedSkuCount === updatedProducts.length;
+
+    const cellRef = doc(db, 'cells', `${stationId}_cell_${cellNumber}`);
+    batch.update(cellRef, {
+      products: updatedProducts,
+      packedSkuCount,
+      packedQuantity,
+      status: allComplete ? 'completed' : 'packing',
+    });
+  }
+
+  await batch.commit();
+}
+
 export async function clearStationCells(stationId: string): Promise<void> {
   const q = query(collection(db, 'cells'), where('stationId', '==', stationId));
   const snapshot = await getDocs(q);
