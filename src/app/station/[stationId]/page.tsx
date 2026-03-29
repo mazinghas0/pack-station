@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw } from 'lucide-react';
+import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
-import { assignWaybillToCell, subscribeToCells, getLatestUpload, clearStationCells, type CellData } from '@/lib/firestore';
-import { playScanSuccess, playScanError, playComplete } from '@/lib/sounds';
+import { assignWaybillToCell, subscribeToCells, getLatestUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
+import { playScanSuccess, playScanError } from '@/lib/sounds';
+import PickingListModal from '@/components/pickingListModal';
+import SearchModal from '@/components/searchModal';
 
 type ScanMode = 'waybill' | 'sku';
 
@@ -34,9 +36,10 @@ export default function StationWorkPage() {
   const isProcessingRef = useRef(false);
   const localCellCountRef = useRef<number | null>(null);
 
-  /** SKU 스캔 모드 */
   const [scanMode, setScanMode] = useState<ScanMode>('waybill');
   const [focusedProduct, setFocusedProduct] = useState<FocusedProduct | null>(null);
+  const [showPickingList, setShowPickingList] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   /** 최신 업로드 ID 가져오기 */
   useEffect(() => {
@@ -63,14 +66,28 @@ export default function StationWorkPage() {
     return () => unsubscribe();
   }, [stationId]);
 
-  /** 페이지 클릭 시 스캔 입력에 포커스 */
+  /** 페이지 클릭 시 스캔 입력에 포커스 (모달 열린 상태에서는 제외) */
   useEffect(() => {
-    const handleClick = () => scanInputRef.current?.focus();
+    const handleClick = () => {
+      if (!showPickingList && !showSearch) {
+        scanInputRef.current?.focus();
+      }
+    };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-  }, []);
+  }, [showPickingList, showSearch]);
 
   const scannedCount = cells.length;
+  const completedCount = cells.filter((c) => c.status === 'completed').length;
+  const holdCount = cells.filter((c) => c.status === 'hold').length;
+
+  /** 배치 요약 (초기화 전 표시) */
+  const batchSummary = useMemo(() => ({
+    total: scannedCount,
+    completed: completedCount,
+    hold: holdCount,
+    pending: scannedCount - completedCount - holdCount,
+  }), [scannedCount, completedCount, holdCount]);
 
   /** ===== 운송장 스캔 처리 ===== */
   const processWaybillScan = useCallback(async (waybillNumber: string) => {
@@ -87,7 +104,7 @@ export default function StationWorkPage() {
 
       if (nextCellNumber > 100) {
         playScanError();
-        setStatusMessage('100셀이 모두 배정되었습니다. 상품 스캔 모드로 전환하세요.');
+        setStatusMessage('100셀이 모두 배정되었습니다. 상품분배 모드로 전환하세요.');
         setStatusType('error');
         return;
       }
@@ -121,12 +138,11 @@ export default function StationWorkPage() {
     const trimmed = barcode.trim();
     if (!trimmed) return;
 
-    /** cells 배열에서 해당 바코드가 필요한 셀 찾기 (클라이언트 필터링) */
     const matchingCells: FocusedProduct['matchingCells'] = [];
     let productName = '';
 
     for (const cell of cells) {
-      if (!cell.products) continue;
+      if (!cell.products || cell.status === 'hold') continue;
       for (const product of cell.products) {
         if (product.productBarcode === trimmed && product.packedQuantity < product.requiredQuantity) {
           matchingCells.push({
@@ -199,16 +215,35 @@ export default function StationWorkPage() {
     scanInputRef.current?.focus();
   }, []);
 
-  /** 배치 초기화 */
+  /** 배치 초기화 (요약 포함) */
   const handleClearBatch = useCallback(async () => {
-    if (!confirm('현재 스테이션의 모든 셀을 초기화하시겠습니까?\n(다음 배치 시작 시 사용)')) return;
+    const msg = scannedCount > 0
+      ? `현재 배치 요약:\n• 총 ${batchSummary.total}셀\n• 완료 ${batchSummary.completed}셀\n• 보충대기 ${batchSummary.hold}셀\n• 작업중 ${batchSummary.pending}셀\n\n초기화하고 다음 배치를 시작하시겠습니까?`
+      : '셀을 초기화하시겠습니까?';
+
+    if (!confirm(msg)) return;
     await clearStationCells(stationId);
     localCellCountRef.current = 0;
     setFocusedProduct(null);
     setScanMode('waybill');
-    setStatusMessage('셀 초기화 완료. 새 배치를 시작하세요.');
+    setStatusMessage('셀 초기화 완료. 새 배치 운송장을 스캔하세요.');
     setStatusType('info');
-  }, [stationId]);
+  }, [stationId, scannedCount, batchSummary]);
+
+  /** 셀 보충대기 토글 */
+  const handleToggleHold = useCallback(async (cellNumber: number) => {
+    const cell = cells.find((c) => c.cellNumber === cellNumber);
+    if (!cell) return;
+
+    if (cell.status === 'hold') {
+      await clearCellHold(cell.id);
+      setStatusMessage(`셀 ${cellNumber}번 보충대기 해제`);
+    } else {
+      await setCellHold(cell.id);
+      setStatusMessage(`셀 ${cellNumber}번 보충대기 설정`);
+    }
+    setStatusType('info');
+  }, [cells]);
 
   /** 구역 색상 (4색 구역제: 25개씩) */
   const getCellZoneColor = (cellNumber: number): string => {
@@ -216,25 +251,21 @@ export default function StationWorkPage() {
     return ZONE_COLORS[zoneIndex % ZONE_COLORS.length].primary;
   };
 
-  /** 셀 데이터 조회 */
   const getCellForNumber = (num: number): CellData | null => {
     return cells.find((c) => c.cellNumber === num) || null;
   };
 
-  /** 포커스된 셀인지 확인 */
   const isCellFocused = (cellNumber: number): boolean => {
     if (!focusedProduct) return false;
     return focusedProduct.matchingCells.some((c) => c.cellNumber === cellNumber);
   };
 
-  /** 포커스된 셀의 필요 수량 */
   const getFocusedQty = (cellNumber: number): number => {
     if (!focusedProduct) return 0;
     const match = focusedProduct.matchingCells.find((c) => c.cellNumber === cellNumber);
     return match ? match.requiredQuantity - match.packedQuantity : 0;
   };
 
-  /** 셀 스타일 */
   const getCellStatusStyle = (cell: CellData | null, cellNumber: number): string => {
     const focused = isCellFocused(cellNumber);
 
@@ -244,7 +275,6 @@ export default function StationWorkPage() {
 
     if (!cell) return 'border-gray-700/60 bg-gray-900/40';
 
-    /** SKU 모드에서 포커스 안 된 배정 셀은 어둡게 */
     const dimmed = focusedProduct ? ' opacity-40' : '';
 
     switch (cell.status) {
@@ -277,14 +307,12 @@ export default function StationWorkPage() {
             스테이션 {stationNum}
           </div>
 
-          {/* 모드 전환 버튼 */}
+          {/* 모드 전환 */}
           <div className="flex rounded-lg overflow-hidden border border-gray-700">
             <button
               onClick={() => handleModeSwitch('waybill')}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                scanMode === 'waybill'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-white'
+                scanMode === 'waybill' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
               }`}
             >
               <ScanBarcode className="w-3.5 h-3.5 inline mr-1" />
@@ -293,9 +321,7 @@ export default function StationWorkPage() {
             <button
               onClick={() => handleModeSwitch('sku')}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                scanMode === 'sku'
-                  ? 'bg-yellow-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-white'
+                scanMode === 'sku' ? 'bg-yellow-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
               }`}
             >
               <Zap className="w-3.5 h-3.5 inline mr-1" />
@@ -312,7 +338,13 @@ export default function StationWorkPage() {
               {scannedCount}<span className="text-sm text-gray-500">/100</span>
             </p>
           </div>
-          <div className="w-48 h-3 rounded-full bg-gray-800">
+          {holdCount > 0 && (
+            <div className="text-center">
+              <p className="text-xs text-orange-400/60">보충대기</p>
+              <p className="text-lg font-bold text-orange-400">{holdCount}</p>
+            </div>
+          )}
+          <div className="w-36 h-3 rounded-full bg-gray-800">
             <div
               className="h-full rounded-full transition-all duration-300"
               style={{ width: `${(scannedCount / 100) * 100}%`, backgroundColor: stationColor.primary }}
@@ -320,8 +352,22 @@ export default function StationWorkPage() {
           </div>
         </div>
 
-        {/* 스캔 입력 + 버튼들 */}
+        {/* 도구 버튼들 */}
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowPickingList(true)}
+            className="p-2 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white"
+            title="피킹리스트"
+          >
+            <ClipboardList className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setShowSearch(true)}
+            className="p-2 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white"
+            title="검색"
+          >
+            <Search className="w-5 h-5" />
+          </button>
           <button
             onClick={() => setShowManualInput(!showManualInput)}
             className="p-2 rounded-lg hover:bg-gray-800 text-gray-500 hover:text-white"
@@ -338,8 +384,8 @@ export default function StationWorkPage() {
               value={scanValue}
               onChange={(e) => setScanValue(e.target.value)}
               onKeyDown={handleScan}
-              placeholder={scanMode === 'waybill' ? '운송장 바코드 스캔...' : '상품 바코드 스캔...'}
-              className={`w-64 pl-9 pr-3 py-2 rounded-lg border text-white placeholder-gray-600 focus:outline-none text-sm ${
+              placeholder={scanMode === 'waybill' ? '운송장 스캔...' : '상품 바코드 스캔...'}
+              className={`w-56 pl-9 pr-3 py-2 rounded-lg border text-white placeholder-gray-600 focus:outline-none text-sm ${
                 scanMode === 'waybill'
                   ? 'bg-gray-900 border-gray-700 focus:border-blue-500'
                   : 'bg-yellow-950/30 border-yellow-700/50 focus:border-yellow-500'
@@ -449,14 +495,14 @@ export default function StationWorkPage() {
                   {cellNumber}
                 </span>
 
-                {/* SKU 포커스 시 필요 수량 크게 표시 */}
+                {/* SKU 포커스 시 필요 수량 */}
                 {focused && (
                   <span className="text-2xl font-black text-yellow-300 mt-0.5">
                     x{focusQty}
                   </span>
                 )}
 
-                {/* 배정된 셀 정보 (포커스 아닐 때) */}
+                {/* 배정된 셀 정보 */}
                 {cell && !focused && (
                   <>
                     <span className="text-[10px] text-gray-400 mt-0.5 truncate w-full text-center font-mono">
@@ -477,12 +523,26 @@ export default function StationWorkPage() {
                       {cell.customerName}
                     </span>
 
+                    {/* 상태 아이콘 */}
                     {cell.status === 'completed' && (
                       <CheckCircle2 className="absolute top-1 right-1 w-4 h-4 text-green-400" />
                     )}
-                    {(cell.status === 'hold' || cell.status === 'replenish') && (
-                      <AlertTriangle className="absolute top-1 right-1 w-4 h-4 text-orange-400" />
+                    {cell.status === 'hold' && (
+                      <PauseCircle className="absolute top-1 right-1 w-4 h-4 text-orange-400" />
                     )}
+
+                    {/* 보충대기 토글 버튼 (셀 좌상단) */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggleHold(cellNumber); }}
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
+                        cell.status === 'hold'
+                          ? 'bg-orange-500 text-white'
+                          : 'bg-transparent text-transparent hover:bg-gray-700 hover:text-gray-400'
+                      }`}
+                      title={cell.status === 'hold' ? '보충대기 해제' : '보충대기 설정'}
+                    >
+                      <PauseCircle className="w-3 h-3" />
+                    </button>
                   </>
                 )}
               </div>
@@ -490,6 +550,18 @@ export default function StationWorkPage() {
           })}
         </div>
       </div>
+
+      {/* 모달들 */}
+      <PickingListModal
+        isOpen={showPickingList}
+        onClose={() => setShowPickingList(false)}
+        cells={cells}
+        stationNum={stationNum}
+      />
+      <SearchModal
+        isOpen={showSearch}
+        onClose={() => setShowSearch(false)}
+      />
     </main>
   );
 }

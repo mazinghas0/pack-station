@@ -274,3 +274,32 @@ export async function searchByWaybill(waybillNumber: string): Promise<CellData |
   if (snapshot.empty) return null;
   return snapshot.docs[0].data() as CellData;
 }
+
+/** 통합 검색 — 전체 셀에서 운송장/고객명/SKU 검색 (크로스 스테이션) */
+export async function searchCells(keyword: string): Promise<CellData[]> {
+  const snapshot = await getDocs(collection(db, 'cells'));
+  const allCells = snapshot.docs.map((d) => d.data() as CellData);
+  const lower = keyword.toLowerCase();
+
+  return allCells.filter((cell) => {
+    if (cell.waybillNumber?.toLowerCase().includes(lower)) return true;
+    if (cell.customerName?.toLowerCase().includes(lower)) return true;
+    if (cell.products?.some((p) =>
+      p.productBarcode?.toLowerCase().includes(lower) ||
+      p.productName?.toLowerCase().includes(lower)
+    )) return true;
+    return false;
+  });
+}
+
+/** 셀 보충 대기(hold) 상태로 변경 */
+export async function setCellHold(cellId: string): Promise<void> {
+  const cellRef = doc(db, 'cells', cellId);
+  await setDoc(cellRef, { status: 'hold' }, { merge: true });
+}
+
+/** 셀 hold 해제 → assigned로 복귀 */
+export async function clearCellHold(cellId: string): Promise<void> {
+  const cellRef = doc(db, 'cells', cellId);
+  await setDoc(cellRef, { status: 'assigned' }, { merge: true });
+}
