@@ -13,7 +13,7 @@ import AccountModal from '@/components/accountModal';
 export default function AdminPage() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [password, setPassword] = useState('skw');
+  const [password, setPassword] = useState(process.env.NEXT_PUBLIC_EXCEL_DEFAULT_PASSWORD || '');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,7 +183,7 @@ export default function AdminPage() {
                 엑셀 비밀번호 (암호화된 파일인 경우)
               </label>
               <input
-                type="text"
+                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="비밀번호 입력"

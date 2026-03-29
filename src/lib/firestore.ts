@@ -11,6 +11,7 @@ import {
   serverTimestamp,
   orderBy,
   deleteDoc,
+  runTransaction,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -81,31 +82,14 @@ export async function getLatestUpload(): Promise<{ id: string; fileName: string;
 
 /** ========== 운송장 스캔 (셀 배정) ========== */
 
-/** 운송장을 스캔하여 셀에 배정 */
+/** 운송장을 스캔하여 셀에 배정 (트랜잭션으로 이중 배정 방지) */
 export async function assignWaybillToCell(
   stationId: string,
   cellNumber: number,
   waybillNumber: string,
   uploadId: string
 ): Promise<{ success: boolean; error?: string; existingStation?: string; existingCell?: number }> {
-  /** 1. 크로스 스테이션 중복 체크 */
-  const duplicateCheck = query(
-    collection(db, 'cells'),
-    where('waybillNumber', '==', waybillNumber)
-  );
-  const duplicateSnap = await getDocs(duplicateCheck);
-
-  if (!duplicateSnap.empty) {
-    const existing = duplicateSnap.docs[0].data();
-    return {
-      success: false,
-      error: `이미 등록된 운송장입니다`,
-      existingStation: existing.stationId,
-      existingCell: existing.cellNumber,
-    };
-  }
-
-  /** 2. 업로드 데이터에서 해당 운송장의 주문 라인 조회 */
+  /** 1. 업로드 데이터에서 해당 운송장의 주문 라인 조회 (트랜잭션 밖 — 읽기 전용) */
   const orderQuery = query(
     collection(db, 'orders'),
     where('uploadId', '==', uploadId),
@@ -113,7 +97,6 @@ export async function assignWaybillToCell(
   );
   const orderSnap = await getDocs(orderQuery);
 
-  /** 업로드 데이터에 없는 운송장 거부 */
   if (orderSnap.empty) {
     return {
       success: false,
@@ -135,31 +118,76 @@ export async function assignWaybillToCell(
 
   const totalSkuCount = products.length;
   const totalQuantity = products.reduce((sum, p) => sum + p.requiredQuantity, 0);
-  const customerName = orderSnap.docs.length > 0 ? orderSnap.docs[0].data().customerName : '';
-  const deliveryMemo = orderSnap.docs.length > 0 ? orderSnap.docs[0].data().deliveryMemo : '';
+  const customerName = orderSnap.docs[0].data().customerName || '';
+  const deliveryMemo = orderSnap.docs[0].data().deliveryMemo || '';
 
-  /** 3. 셀 문서 생성 */
+  /** 2. 트랜잭션: 중복 체크 + 셀 생성을 원자적으로 처리 */
   const cellId = `${stationId}_cell_${cellNumber}`;
   const cellRef = doc(db, 'cells', cellId);
+  /** 중복 체크용 마커 문서 (운송장번호 기준) */
+  const waybillLockRef = doc(db, 'waybillLocks', waybillNumber);
 
-  await setDoc(cellRef, {
-    id: cellId,
-    stationId,
-    cellNumber,
-    waybillNumber,
-    customerName,
-    deliveryMemo,
-    uploadId,
-    totalSkuCount,
-    packedSkuCount: 0,
-    totalQuantity,
-    packedQuantity: 0,
-    status: 'assigned',
-    products,
-    createdAt: serverTimestamp(),
-  });
+  try {
+    await runTransaction(db, async (tx) => {
+      /** 셀 번호 충돌 체크 */
+      const cellSnap = await tx.get(cellRef);
+      if (cellSnap.exists()) {
+        throw new Error('CELL_EXISTS');
+      }
 
-  /** 4. 주문 상태 업데이트 */
+      /** 운송장 중복 체크 (마커 문서 기반) */
+      const lockSnap = await tx.get(waybillLockRef);
+      if (lockSnap.exists()) {
+        const lockData = lockSnap.data();
+        throw new Error(`DUPLICATE:${lockData.stationId}:${lockData.cellNumber}`);
+      }
+
+      /** 마커 문서 생성 (중복 방지용) */
+      tx.set(waybillLockRef, {
+        stationId,
+        cellNumber,
+        createdAt: serverTimestamp(),
+      });
+
+      /** 셀 문서 생성 */
+      tx.set(cellRef, {
+        id: cellId,
+        stationId,
+        cellNumber,
+        waybillNumber,
+        customerName,
+        deliveryMemo,
+        uploadId,
+        totalSkuCount,
+        packedSkuCount: 0,
+        totalQuantity,
+        packedQuantity: 0,
+        status: 'assigned',
+        products,
+        createdAt: serverTimestamp(),
+      });
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '';
+
+    if (msg === 'CELL_EXISTS') {
+      return { success: false, error: '이미 사용 중인 셀입니다. 다시 스캔해주세요.' };
+    }
+
+    if (msg.startsWith('DUPLICATE:')) {
+      const parts = msg.split(':');
+      return {
+        success: false,
+        error: '이미 등록된 운송장입니다',
+        existingStation: parts[1],
+        existingCell: Number(parts[2]),
+      };
+    }
+
+    return { success: false, error: err instanceof Error ? err.message : '셀 배정 실패' };
+  }
+
+  /** 3. 주문 상태 업데이트 (트랜잭션 밖 — 실패해도 셀 배정은 유지) */
   const orderBatch = writeBatch(db);
   for (const orderDoc of orderSnap.docs) {
     orderBatch.update(orderDoc.ref, {
@@ -258,11 +286,28 @@ export async function clearStationCells(stationId: string): Promise<void> {
   const q = query(collection(db, 'cells'), where('stationId', '==', stationId));
   const snapshot = await getDocs(q);
 
-  const batch = writeBatch(db);
+  /** 셀 삭제 + 운송장 마커 삭제 (450개씩 배치 분할) */
+  const batchSize = 450;
+  const allOps: { cellRef: ReturnType<typeof doc>; waybillNumber: string }[] = [];
+
   for (const docSnap of snapshot.docs) {
-    batch.delete(docSnap.ref);
+    const data = docSnap.data();
+    allOps.push({ cellRef: docSnap.ref, waybillNumber: data.waybillNumber });
   }
-  await batch.commit();
+
+  for (let i = 0; i < allOps.length; i += batchSize) {
+    const batch = writeBatch(db);
+    const chunk = allOps.slice(i, i + batchSize);
+
+    for (const op of chunk) {
+      batch.delete(op.cellRef);
+      if (op.waybillNumber) {
+        batch.delete(doc(db, 'waybillLocks', op.waybillNumber));
+      }
+    }
+
+    await batch.commit();
+  }
 }
 
 /** ========== 검색 ========== */

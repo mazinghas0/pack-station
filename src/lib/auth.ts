@@ -40,7 +40,12 @@ export async function initMasterAccount(): Promise<void> {
   const masterSnap = await getDoc(masterRef);
 
   if (!masterSnap.exists()) {
-    const hashedPw = await hashPassword('dptmvkvk1!');
+    const masterPw = process.env.NEXT_PUBLIC_MASTER_PASSWORD;
+    if (!masterPw) {
+      console.error('NEXT_PUBLIC_MASTER_PASSWORD 환경변수가 설정되지 않았습니다.');
+      return;
+    }
+    const hashedPw = await hashPassword(masterPw);
     await setDoc(masterRef, {
       id: 'mazingha',
       username: 'mazingha',
