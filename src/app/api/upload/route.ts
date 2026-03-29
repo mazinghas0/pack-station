@@ -25,6 +25,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    /** 파일 크기 제한 (50MB) */
+    const MAX_SIZE = 50 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json(
+        { error: '파일 크기는 50MB를 초과할 수 없습니다.' },
+        { status: 413 }
+      );
+    }
+
     /** 파일 버퍼 읽기 */
     const rawBuffer = Buffer.from(await file.arrayBuffer());
     const excelPassword = password || process.env.EXCEL_DEFAULT_PASSWORD || '';
@@ -61,10 +70,9 @@ export async function POST(request: NextRequest) {
       data: parsedData,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : '파일 파싱 중 오류가 발생했습니다.';
-
+    console.error('[upload] parse error:', error);
     return NextResponse.json(
-      { error: message },
+      { error: '파일 파싱 중 오류가 발생했습니다.' },
       { status: 500 }
     );
   }
