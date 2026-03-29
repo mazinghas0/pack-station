@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, ScanBarcode, Package, CheckCircle2, AlertTriangle, Keyboard, Zap, RotateCcw, ClipboardList, Search, PauseCircle, Shield, Maximize2, Minimize2, X } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
-import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, type CellData } from '@/lib/firestore';
+import { assignWaybillToCell, subscribeToCells, getActiveUpload, getStationUpload, setStationUpload, clearStationCells, setCellHold, clearCellHold, cellNumberToLabel, TOTAL_CELLS, type CellData } from '@/lib/firestore';
 import { playScanSuccess, playScanError } from '@/lib/sounds';
 import { useAuth } from '@/components/authProvider';
 import { canAccessAdmin } from '@/lib/auth';
@@ -289,10 +289,10 @@ export default function StationWorkPage() {
     setStatusType('info');
   }, [cells]);
 
-  /** 구역 색상 (4색 구역제: 25개씩) */
+  /** 구역 색상 (랙 단위: 9셀씩 1랙, 9색 순환) */
   const getCellZoneColor = (cellNumber: number): string => {
-    const zoneIndex = Math.floor((cellNumber - 1) / 25);
-    return ZONE_COLORS[zoneIndex % ZONE_COLORS.length].primary;
+    const rackIndex = Math.ceil(cellNumber / 9) - 1;
+    return ZONE_COLORS[rackIndex % ZONE_COLORS.length].primary;
   };
 
   const getCellForNumber = (num: number): CellData | null => {
@@ -549,10 +549,30 @@ export default function StationWorkPage() {
         </div>
       )}
 
-      {/* 셀 그리드 (10x10) */}
-      <div className="flex-1 p-3">
-        <div className="grid grid-cols-10 gap-1.5 h-full">
-          {Array.from({ length: 100 }, (_, i) => i + 1).map((cellNumber) => {
+      {/* 셀 그리드 (12랙 × 9셀) */}
+      <div className="flex-1 p-3 overflow-auto">
+        {/* 랙 헤더 행 */}
+        <div className="grid grid-cols-12 gap-1.5 mb-1">
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((rackNum) => (
+            <div
+              key={rackNum}
+              className="text-center text-[10px] font-bold py-0.5 rounded"
+              style={{ color: ZONE_COLORS[(rackNum - 1) % ZONE_COLORS.length].primary, backgroundColor: ZONE_COLORS[(rackNum - 1) % ZONE_COLORS.length].primary + '20' }}
+            >
+              R{String(rackNum).padStart(2, '0')}
+            </div>
+          ))}
+        </div>
+
+        {/* 9행 × 12열 셀 */}
+        <div className="grid grid-cols-12 gap-1.5">
+          {Array.from({ length: TOTAL_CELLS }, (_, i) => {
+            const cellNumber = i + 1;
+            const rack = Math.ceil(cellNumber / 9);
+            const pos = ((cellNumber - 1) % 9) + 1;
+            /** 열 우선(column-major) → 행 우선(row-major) 재배열: 랙이 열, 위치가 행 */
+            const gridCol = rack;
+            const gridRow = pos;
             const cell = getCellForNumber(cellNumber);
             const focused = isCellFocused(cellNumber);
             const focusQty = getFocusedQty(cellNumber);
@@ -560,23 +580,24 @@ export default function StationWorkPage() {
             return (
               <div
                 key={cellNumber}
+                style={{ gridColumn: gridCol, gridRow: gridRow }}
                 onClick={(e) => { if (cell) { e.stopPropagation(); setSelectedCell(cell); } }}
-                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[60px] transition-all duration-200
+                className={`relative flex flex-col items-center justify-center rounded-lg border-2 p-1 min-h-[58px] transition-all duration-200
                   ${getCellStatusStyle(cell, cellNumber)}
                   ${focused ? 'animate-pulse z-10' : ''}
                   ${cell ? 'cursor-pointer' : ''}`}
               >
-                {/* 셀 번호 */}
+                {/* 랙 레이블 */}
                 <span
-                  className={`font-black leading-none ${focused ? 'text-4xl' : 'text-2xl'}`}
+                  className={`font-black leading-none ${focused ? 'text-base' : 'text-xs'}`}
                   style={{ color: focused ? '#facc15' : cell ? getCellZoneColor(cellNumber) : getCellZoneColor(cellNumber) + '80' }}
                 >
-                  {cellNumber}
+                  {cellNumberToLabel(cellNumber)}
                 </span>
 
                 {/* SKU 포커스 시 필요 수량 */}
                 {focused && (
-                  <span className="text-2xl font-black text-yellow-300 mt-0.5">
+                  <span className="text-xl font-black text-yellow-300 mt-0.5">
                     x{focusQty}
                   </span>
                 )}
@@ -584,36 +605,36 @@ export default function StationWorkPage() {
                 {/* 배정된 셀 정보 */}
                 {cell && !focused && (
                   <>
-                    <span className="text-[10px] text-gray-400 mt-0.5 truncate w-full text-center font-mono">
+                    <span className="text-[9px] text-gray-400 mt-0.5 truncate w-full text-center font-mono">
                       {cell.waybillNumber}
                     </span>
 
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <Package className="w-3 h-3 text-gray-500" />
-                      <span className="text-xs text-gray-400">
+                    <div className="flex items-center gap-0.5 mt-0.5">
+                      <Package className="w-2.5 h-2.5 text-gray-500" />
+                      <span className="text-[10px] text-gray-400">
                         {cell.packedSkuCount}/{cell.totalSkuCount}
                       </span>
-                      <span className="text-xs font-bold text-white">
+                      <span className="text-[10px] font-bold text-white">
                         x{cell.totalQuantity}
                       </span>
                     </div>
 
-                    <span className="text-[9px] text-gray-600 truncate w-full text-center">
+                    <span className="text-[8px] text-gray-600 truncate w-full text-center">
                       {cell.customerName}
                     </span>
 
                     {/* 상태 아이콘 */}
                     {cell.status === 'completed' && (
-                      <CheckCircle2 className="absolute top-1 right-1 w-4 h-4 text-green-400" />
+                      <CheckCircle2 className="absolute top-0.5 right-0.5 w-3 h-3 text-green-400" />
                     )}
                     {cell.status === 'hold' && (
-                      <PauseCircle className="absolute top-1 right-1 w-4 h-4 text-orange-400" />
+                      <PauseCircle className="absolute top-0.5 right-0.5 w-3 h-3 text-orange-400" />
                     )}
 
                     {/* 보충대기 토글 버튼 (셀 좌상단) */}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleToggleHold(cellNumber); }}
-                      className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
+                      className={`absolute top-0 left-0 w-4 h-4 rounded-full flex items-center justify-center transition-colors ${
                         cell.status === 'hold'
                           ? 'bg-orange-500 text-white'
                           : 'bg-transparent text-transparent hover:bg-gray-700 hover:text-gray-400'

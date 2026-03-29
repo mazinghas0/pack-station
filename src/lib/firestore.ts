@@ -20,6 +20,18 @@ import {
 import { db } from './firebase';
 import type { ParsedOrder, ParsedExcelData, UploadSummary, DailyBriefing } from './types';
 
+/** ========== 셀 번호 유틸 ========== */
+
+/** 정수 셀 번호(1-108)를 랙 레이블(R01-01 형식)로 변환 */
+export function cellNumberToLabel(n: number): string {
+  const rack = Math.ceil(n / 9);
+  const pos = ((n - 1) % 9) + 1;
+  return `R${String(rack).padStart(2, '0')}-${String(pos).padStart(2, '0')}`;
+}
+
+/** 총 셀 수 (12랙 × 9셀) */
+export const TOTAL_CELLS = 108;
+
 /** ========== 업로드 (엑셀 데이터 저장) ========== */
 
 /** 엑셀 파싱 결과를 Firestore에 저장 */
@@ -299,8 +311,9 @@ export async function autoAssignToStation(
   const usedCells = new Set(existingCellsSnap.docs.map((d) => d.data().cellNumber as number));
 
   let nextCell = 1;
-  const pickNextCell = (): number => {
+  const pickNextCell = (): number | null => {
     while (usedCells.has(nextCell)) nextCell++;
+    if (nextCell > TOTAL_CELLS) return null;
     usedCells.add(nextCell);
     return nextCell++;
   };
@@ -311,6 +324,7 @@ export async function autoAssignToStation(
 
   for (const [waybillNumber, orderDocs] of targetWaybills) {
     const cellNumber = pickNextCell();
+    if (cellNumber === null) break;
     const cellId = `${stationId}_cell_${cellNumber}`;
 
     const products = orderDocs.map((o) => ({

@@ -19,12 +19,17 @@ export interface StationColorZone {
   label: string;
 }
 
-/** 스테이션 색상 프리셋 (4색 구역제) */
+/** 스테이션 색상 프리셋 (9색 랙 구역제) */
 export const ZONE_COLORS: StationColorZone[] = [
   { primary: '#3B82F6', background: '#1E3A5F', label: '파랑' },
   { primary: '#10B981', background: '#1A3A2A', label: '초록' },
   { primary: '#F59E0B', background: '#3D2E0A', label: '주황' },
   { primary: '#8B5CF6', background: '#2D1B69', label: '보라' },
+  { primary: '#EF4444', background: '#3B1212', label: '빨강' },
+  { primary: '#06B6D4', background: '#0C2D35', label: '청록' },
+  { primary: '#EC4899', background: '#3B0F26', label: '분홍' },
+  { primary: '#84CC16', background: '#1E2F0A', label: '라임' },
+  { primary: '#F97316', background: '#3B1A08', label: '주홍' },
 ];
 
 /** 배치 (한 번에 처리하는 묶음) */

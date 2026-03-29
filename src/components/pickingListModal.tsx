@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { X, Printer, Package } from 'lucide-react';
 import { ZONE_COLORS } from '@/lib/types';
-import type { CellData } from '@/lib/firestore';
+import { cellNumberToLabel, type CellData } from '@/lib/firestore';
 
 interface PickingListModalProps {
   isOpen: boolean;
@@ -52,10 +52,10 @@ export default function PickingListModal({ isOpen, onClose, cells, stationNum }:
   const totalQuantity = pickingList.reduce((sum, item) => sum + item.totalQuantity, 0);
   const totalCells = cells.length;
 
-  /** 셀 번호의 구역 색상 */
+  /** 셀 번호의 구역 색상 (랙 단위) */
   const getCellZoneColor = (cellNumber: number): string => {
-    const zoneIndex = Math.floor((cellNumber - 1) / 25);
-    return ZONE_COLORS[zoneIndex % ZONE_COLORS.length].primary;
+    const rackIndex = Math.ceil(cellNumber / 9) - 1;
+    return ZONE_COLORS[rackIndex % ZONE_COLORS.length].primary;
   };
 
   /** 인쇄 */
@@ -143,7 +143,7 @@ export default function PickingListModal({ isOpen, onClose, cells, stationNum }:
                               color: getCellZoneColor(c.cellNumber),
                             }}
                           >
-                            {c.cellNumber}번
+                            {cellNumberToLabel(c.cellNumber)}
                             {c.quantity > 1 && <span className="font-bold">x{c.quantity}</span>}
                           </span>
                         ))}

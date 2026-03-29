@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { X, Search, MapPin, Package, User } from 'lucide-react';
-import { searchCells, type CellData } from '@/lib/firestore';
+import { searchCells, cellNumberToLabel, type CellData } from '@/lib/firestore';
 import { ZONE_COLORS } from '@/lib/types';
 
 interface SearchModalProps {
@@ -30,8 +30,8 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
   }, [keyword]);
 
   const getCellZoneColor = (cellNumber: number): string => {
-    const zoneIndex = Math.floor((cellNumber - 1) / 25);
-    return ZONE_COLORS[zoneIndex % ZONE_COLORS.length].primary;
+    const rackIndex = Math.ceil(cellNumber / 9) - 1;
+    return ZONE_COLORS[rackIndex % ZONE_COLORS.length].primary;
   };
 
   const getStationNum = (stationId: string): string => {
@@ -113,7 +113,7 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
                           color: getCellZoneColor(cell.cellNumber),
                         }}
                       >
-                        셀 {cell.cellNumber}번
+                        {cellNumberToLabel(cell.cellNumber)}
                       </span>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium
