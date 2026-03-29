@@ -182,12 +182,12 @@ export function subscribeToCells(
 ): Unsubscribe {
   const q = query(
     collection(db, 'cells'),
-    where('stationId', '==', stationId),
-    orderBy('cellNumber', 'asc')
+    where('stationId', '==', stationId)
   );
 
   return onSnapshot(q, (snapshot) => {
     const cells: CellData[] = snapshot.docs.map((d) => d.data() as CellData);
+    cells.sort((a, b) => a.cellNumber - b.cellNumber);
     callback(cells);
   });
 }
