@@ -1,17 +1,30 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2 } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData } from '@/lib/types';
+import { ZONE_COLORS } from '@/lib/types';
+import { saveUpload, subscribeToAllStations, type StationSummary } from '@/lib/firestore';
 
 export default function AdminPage() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [password, setPassword] = useState('skw');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [parsedData, setParsedData] = useState<ParsedExcelData | null>(null);
+  const [savedUploadId, setSavedUploadId] = useState<string | null>(null);
+  const [stationStats, setStationStats] = useState<StationSummary[]>([]);
+
+  /** 스테이션 현황 실시간 구독 */
+  useEffect(() => {
+    const unsubscribe = subscribeToAllStations((stats) => {
+      setStationStats(stats);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -19,6 +32,7 @@ export default function AdminPage() {
       setFile(selectedFile);
       setError(null);
       setParsedData(null);
+      setSavedUploadId(null);
     }
   }, []);
 
@@ -52,6 +66,23 @@ export default function AdminPage() {
     }
   }, [file, password]);
 
+  /** Firebase에 데이터 저장 */
+  const handleSaveToFirebase = useCallback(async () => {
+    if (!parsedData) return;
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const uploadId = await saveUpload(parsedData);
+      setSavedUploadId(uploadId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Firebase 저장 실패');
+    } finally {
+      setSaving(false);
+    }
+  }, [parsedData]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
@@ -59,13 +90,14 @@ export default function AdminPage() {
       setFile(droppedFile);
       setError(null);
       setParsedData(null);
+      setSavedUploadId(null);
     }
   }, []);
 
   return (
     <main className="min-h-screen bg-black p-6">
-      {/* 헤더 */}
       <div className="max-w-6xl mx-auto">
+        {/* 헤더 */}
         <div className="flex items-center gap-4 mb-8">
           <button
             onClick={() => router.push('/')}
@@ -75,7 +107,7 @@ export default function AdminPage() {
           </button>
           <div>
             <h1 className="text-3xl font-bold text-white">관리자</h1>
-            <p className="text-gray-500">엑셀 업로드 및 스테이션 관리</p>
+            <p className="text-gray-500">엑셀 업로드 및 스테이션 현황 모니터링</p>
           </div>
         </div>
 
@@ -160,13 +192,12 @@ export default function AdminPage() {
             )}
           </div>
 
-          {/* 우측: 파싱 결과 */}
+          {/* 우측: 파싱 결과 + 저장 */}
           <div className="space-y-6">
             <h2 className="text-xl font-semibold text-white">분석 결과</h2>
 
             {parsedData ? (
               <div className="space-y-4">
-                {/* 요약 카드 */}
                 <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
                   <CheckCircle2 className="w-5 h-5 text-green-400" />
                   <p className="text-green-400 font-medium">파싱 완료: {parsedData.fileName}</p>
@@ -179,41 +210,34 @@ export default function AdminPage() {
                   <StatCard label="주문 라인" value={parsedData.orders.length} unit="행" />
                 </div>
 
-                {/* 스테이션 분배 미리보기 */}
-                <div className="p-4 rounded-lg bg-gray-900 border border-gray-800">
-                  <h3 className="text-sm text-gray-400 mb-3">스테이션 분배 예상 (100건/스테이션)</h3>
-                  <div className="space-y-2">
-                    {Array.from({ length: Math.min(6, Math.ceil(parsedData.uniqueWaybills / 100)) }).map((_, i) => {
-                      const start = i * 100 + 1;
-                      const end = Math.min((i + 1) * 100, parsedData.uniqueWaybills);
-                      return (
-                        <div key={i} className="flex items-center gap-3">
-                          <span className="text-xs px-2 py-1 rounded bg-gray-800 text-gray-400 w-24 text-center">
-                            스테이션 {i + 1}
-                          </span>
-                          <div className="flex-1 h-2 rounded-full bg-gray-800">
-                            <div
-                              className="h-full rounded-full bg-blue-500"
-                              style={{ width: `${((end - start + 1) / 100) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-gray-400 w-16 text-right">{end - start + 1}건</span>
-                        </div>
-                      );
-                    })}
+                {/* Firebase 저장 버튼 */}
+                {savedUploadId ? (
+                  <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                    <Database className="w-5 h-5 text-blue-400" />
+                    <div>
+                      <p className="text-blue-400 font-medium">데이터 저장 완료</p>
+                      <p className="text-xs text-blue-400/60">스테이션에서 운송장 스캔을 시작할 수 있습니다</p>
+                    </div>
                   </div>
-                </div>
-
-                {/* 배치 시작 버튼 */}
-                <button
-                  className="w-full py-4 rounded-xl text-lg font-semibold bg-green-600 hover:bg-green-700 text-white transition-all"
-                  onClick={() => {
-                    /** TODO: Firebase에 저장 후 스테이션 페이지로 이동 */
-                    alert('Firebase 연결 후 활성화됩니다. (1단계 완료 후 2단계에서 구현)');
-                  }}
-                >
-                  배치 생성 및 스테이션 분배
-                </button>
+                ) : (
+                  <button
+                    onClick={handleSaveToFirebase}
+                    disabled={saving}
+                    className="w-full py-4 rounded-xl text-lg font-semibold bg-green-600 hover:bg-green-700 text-white transition-all disabled:bg-gray-800 disabled:text-gray-600"
+                  >
+                    {saving ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        저장 중...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <Database className="w-5 h-5" />
+                        데이터 저장 (스테이션 작업 준비)
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center p-16 rounded-xl border border-gray-800 bg-gray-900/30">
@@ -224,6 +248,61 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* 하단: 스테이션 실시간 현황 */}
+        <div className="mt-12">
+          <h2 className="text-xl font-semibold text-white mb-6">스테이션 실시간 현황</h2>
+
+          {stationStats.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {stationStats.map((stat) => {
+                const stationNum = parseInt(stat.stationId.replace('station-', ''));
+                const color = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
+                const progress = stat.total > 0 ? Math.round((stat.completed / stat.total) * 100) : 0;
+
+                return (
+                  <div
+                    key={stat.stationId}
+                    className="p-4 rounded-xl border"
+                    style={{ borderColor: color.primary + '40', backgroundColor: color.background + '20' }}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <Monitor className="w-4 h-4" style={{ color: color.primary }} />
+                      <span className="font-semibold text-white">스테이션 {stationNum}</span>
+                    </div>
+
+                    <div className="text-3xl font-bold text-white mb-1">
+                      {stat.completed}<span className="text-sm text-gray-500">/{stat.total}</span>
+                    </div>
+
+                    <div className="w-full h-2 rounded-full bg-gray-800 mb-2">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${progress}%`, backgroundColor: color.primary }}
+                      />
+                    </div>
+
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>{progress}%</span>
+                      <span>수량: {stat.totalQty}</span>
+                    </div>
+
+                    {stat.hold > 0 && (
+                      <div className="mt-2 text-xs px-2 py-1 rounded bg-orange-500/20 text-orange-400 text-center">
+                        보충 대기 {stat.hold}건
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-8 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
+              <p className="text-gray-600">아직 작업 중인 스테이션이 없습니다</p>
+              <p className="text-gray-700 text-sm mt-1">스테이션에서 운송장 스캔을 시작하면 여기에 실시간으로 표시됩니다</p>
+            </div>
+          )}
         </div>
       </div>
     </main>
