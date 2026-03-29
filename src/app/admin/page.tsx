@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor, Shield } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor, Shield, BookOpen, Clock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import type { ParsedExcelData } from '@/lib/types';
+import type { ParsedExcelData, UploadSummary, DailyBriefing } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, getLatestUpload, subscribeToAllStations, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, type StationSummary } from '@/lib/firestore';
 import { useAuth } from '@/components/authProvider';
 import { canManageAccounts } from '@/lib/auth';
 import AccountModal from '@/components/accountModal';
@@ -21,27 +21,41 @@ export default function AdminPage() {
   const [savedUploadId, setSavedUploadId] = useState<string | null>(null);
   const [stationStats, setStationStats] = useState<StationSummary[]>([]);
   const [existingUpload, setExistingUpload] = useState<{ fileName: string; totalOrders: number; totalQuantity: number; uniqueProducts: number; uniqueWaybills: number } | null>(null);
+  const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
+  const [recentUploads, setRecentUploads] = useState<UploadSummary[]>([]);
+  const [briefings, setBriefings] = useState<DailyBriefing[]>([]);
+  const [activeTab, setActiveTab] = useState<'upload' | 'briefing'>('upload');
+  const [closingDay, setClosingDay] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const { user: currentUser } = useAuth();
 
-  /** 기존 업로드 기록 로드 */
+  /** 활성 배차 + 최근 업로드 목록 + 브리핑 로드 / 24시간 만료 데이터 백그라운드 정리 */
   useEffect(() => {
     (async () => {
-      const upload = await getLatestUpload();
-      if (upload) {
-        setExistingUpload(upload);
-        setSavedUploadId(upload.id);
+      const [active, recent, briefs] = await Promise.all([
+        getActiveUpload(),
+        getRecentUploads(),
+        getDailyBriefings(),
+      ]);
+      if (active) {
+        setExistingUpload(active);
+        setSavedUploadId(active.id);
+        setActiveUploadId(active.id);
       }
+      setRecentUploads(recent);
+      setBriefings(briefs);
+      cleanupExpiredUploads().catch(() => {}); // 백그라운드 실행, 오류 무시
     })();
   }, []);
 
-  /** 스테이션 현황 실시간 구독 */
+  /** 스테이션 현황 실시간 구독 — 활성 배차 기준 */
   useEffect(() => {
-    const unsubscribe = subscribeToAllStations((stats) => {
+    if (!activeUploadId) return;
+    const unsubscribe = subscribeToAllStations(activeUploadId, (stats) => {
       setStationStats(stats);
     });
     return () => unsubscribe();
-  }, []);
+  }, [activeUploadId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -83,9 +97,28 @@ export default function AdminPage() {
     }
   }, [file, password]);
 
+  /** 이전 배차 활성화 */
+  const handleActivateUpload = useCallback(async (uploadId: string, fileName: string) => {
+    await setActiveUpload(uploadId, fileName);
+    setActiveUploadId(uploadId);
+    const upload = recentUploads.find((u) => u.id === uploadId);
+    if (upload) {
+      setExistingUpload(upload);
+      setSavedUploadId(uploadId);
+    }
+  }, [recentUploads]);
+
   /** Firebase에 데이터 저장 */
   const handleSaveToFirebase = useCallback(async () => {
     if (!parsedData) return;
+
+    /** 진행 중인 배차가 있을 경우 경고 */
+    if (stationStats.some((s) => s.total > 0)) {
+      const ok = confirm(
+        '현재 스테이션에 작업 중인 데이터가 있습니다.\n새 배차를 저장하면 스테이션 작업 화면이 새 배차로 전환됩니다.\n계속하시겠습니까?'
+      );
+      if (!ok) return;
+    }
 
     setSaving(true);
     setError(null);
@@ -93,12 +126,36 @@ export default function AdminPage() {
     try {
       const uploadId = await saveUpload(parsedData);
       setSavedUploadId(uploadId);
+      setActiveUploadId(uploadId);
+      const recent = await getRecentUploads();
+      setRecentUploads(recent);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Firebase 저장 실패');
     } finally {
       setSaving(false);
     }
-  }, [parsedData]);
+  }, [parsedData, stationStats]);
+
+  /** 하루 마감 — 브리핑 생성 후 모든 원본 데이터 삭제 */
+  const handleCloseDay = useCallback(async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const ok = confirm(
+      `오늘(${today}) 작업을 마감하시겠습니까?\n모든 배차 데이터가 정리되고 데일리 브리핑이 저장됩니다.`
+    );
+    if (!ok) return;
+    setClosingDay(true);
+    try {
+      const briefing = await generateDailyBriefing(today);
+      setBriefings((prev) => [briefing, ...prev]);
+      setRecentUploads([]);
+      setExistingUpload(null);
+      setSavedUploadId(null);
+      setActiveUploadId(null);
+      setActiveTab('briefing');
+    } finally {
+      setClosingDay(false);
+    }
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -137,8 +194,53 @@ export default function AdminPage() {
               <span className="sm:hidden">계정</span>
             </button>
           )}
+
+          <button
+            onClick={handleCloseDay}
+            disabled={closingDay || recentUploads.length === 0}
+            className="flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg bg-orange-600/20 hover:bg-orange-600/40 border border-orange-500/30 text-orange-400 hover:text-orange-300 transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {closingDay ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Clock className="w-4 h-4" />
+            )}
+            <span className="hidden sm:inline">{closingDay ? '마감 중...' : '오늘 마감'}</span>
+          </button>
         </div>
 
+        {/* 탭 */}
+        <div className="flex gap-1 mb-6 border-b border-gray-800">
+          <button
+            onClick={() => setActiveTab('upload')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'upload'
+                ? 'border-blue-500 text-blue-400'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <Upload className="w-4 h-4" />
+            배차 관리
+          </button>
+          <button
+            onClick={() => setActiveTab('briefing')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeTab === 'briefing'
+                ? 'border-orange-500 text-orange-400'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            데일리 브리핑
+            {briefings.length > 0 && (
+              <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+                {briefings.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'upload' && (<>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
           {/* 좌측: 엑셀 업로드 */}
           <div className="space-y-6">
@@ -280,60 +382,202 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* 하단: 스테이션 실시간 현황 */}
-        <div className="mt-8 md:mt-12">
-          <h2 className="text-lg md:text-xl font-semibold text-white mb-4 md:mb-6">스테이션 실시간 현황</h2>
+          {/* 하단: 스테이션 실시간 현황 */}
 
-          {stationStats.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-              {stationStats.map((stat) => {
-                const stationNum = parseInt(stat.stationId.replace('station-', ''));
-                const color = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
-                const progress = stat.total > 0 ? Math.round((stat.completed / stat.total) * 100) : 0;
+          <div className="mt-8 md:mt-12">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-4 md:mb-6">스테이션 실시간 현황</h2>
 
-                return (
-                  <div
-                    key={stat.stationId}
-                    className="p-4 rounded-xl border"
-                    style={{ borderColor: color.primary + '40', backgroundColor: color.background + '20' }}
-                  >
-                    <div className="flex items-center gap-2 mb-3">
-                      <Monitor className="w-4 h-4" style={{ color: color.primary }} />
-                      <span className="font-semibold text-white">스테이션 {stationNum}</span>
-                    </div>
+            {stationStats.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+                {stationStats.map((stat) => {
+                  const stationNum = parseInt(stat.stationId.replace('station-', ''));
+                  const color = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
+                  const progress = stat.total > 0 ? Math.round((stat.completed / stat.total) * 100) : 0;
 
-                    <div className="text-3xl font-bold text-white mb-1">
-                      {stat.completed}<span className="text-sm text-gray-500">/{stat.total}</span>
-                    </div>
-
-                    <div className="w-full h-2 rounded-full bg-gray-800 mb-2">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${progress}%`, backgroundColor: color.primary }}
-                      />
-                    </div>
-
-                    <div className="flex justify-between text-xs text-gray-500">
-                      <span>{progress}%</span>
-                      <span>수량: {stat.totalQty}</span>
-                    </div>
-
-                    {stat.hold > 0 && (
-                      <div className="mt-2 text-xs px-2 py-1 rounded bg-orange-500/20 text-orange-400 text-center">
-                        보충 대기 {stat.hold}건
+                  return (
+                    <div
+                      key={stat.stationId}
+                      className="p-4 rounded-xl border"
+                      style={{ borderColor: color.primary + '40', backgroundColor: color.background + '20' }}
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <Monitor className="w-4 h-4" style={{ color: color.primary }} />
+                        <span className="font-semibold text-white">스테이션 {stationNum}</span>
                       </div>
-                    )}
+
+                      <div className="text-3xl font-bold text-white mb-1">
+                        {stat.completed}<span className="text-sm text-gray-500">/{stat.total}</span>
+                      </div>
+
+                      <div className="w-full h-2 rounded-full bg-gray-800 mb-2">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${progress}%`, backgroundColor: color.primary }}
+                        />
+                      </div>
+
+                      <div className="flex justify-between text-xs text-gray-500">
+                        <span>{progress}%</span>
+                        <span>수량: {stat.totalQty}</span>
+                      </div>
+
+                      {stat.hold > 0 && (
+                        <div className="mt-2 text-xs px-2 py-1 rounded bg-orange-500/20 text-orange-400 text-center">
+                          보충 대기 {stat.hold}건
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-8 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
+                <p className="text-gray-600">아직 작업 중인 스테이션이 없습니다</p>
+                <p className="text-gray-700 text-sm mt-1">스테이션에서 운송장 스캔을 시작하면 여기에 실시간으로 표시됩니다</p>
+              </div>
+            )}
+          </div>
+
+          {/* 배차 기록 */}
+          <div className="mt-8 md:mt-12">
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-4 md:mb-6">배차 기록</h2>
+            {recentUploads.length > 0 ? (
+              <div className="overflow-x-auto rounded-xl border border-gray-800">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800 bg-gray-900/50">
+                      <th className="text-left px-4 py-3 text-gray-500 font-medium">파일명</th>
+                      <th className="text-right px-4 py-3 text-gray-500 font-medium">운송장</th>
+                      <th className="text-right px-4 py-3 text-gray-500 font-medium">수량</th>
+                      <th className="text-center px-4 py-3 text-gray-500 font-medium">활성화</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentUploads.map((upload) => {
+                      const isActive = upload.id === activeUploadId;
+                      return (
+                        <tr key={upload.id} className="border-b border-gray-800/50 hover:bg-gray-900/30">
+                          <td className="px-4 py-3 text-white">
+                            {isActive && (
+                              <span className="mr-2 text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">활성</span>
+                            )}
+                            {upload.fileName}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-300">{upload.uniqueWaybills.toLocaleString()}건</td>
+                          <td className="px-4 py-3 text-right text-gray-300">{upload.totalQuantity.toLocaleString()}개</td>
+                          <td className="px-4 py-3 text-center">
+                            {isActive ? (
+                              <span className="text-xs text-gray-600">현재 배차</span>
+                            ) : (
+                              <button
+                                onClick={() => handleActivateUpload(upload.id, upload.fileName)}
+                                className="text-xs px-3 py-1 rounded bg-gray-800 hover:bg-blue-600/30 text-gray-400 hover:text-blue-300 transition-colors"
+                              >
+                                활성화
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
+                <p className="text-gray-600">업로드 기록이 없습니다</p>
+              </div>
+            )}
+          </div>
+        </>)}
+
+        {/* 데일리 브리핑 탭 */}
+        {activeTab === 'briefing' && (
+          <div className="space-y-6">
+            {briefings.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-16 rounded-xl border border-gray-800 bg-gray-900/30">
+                <BookOpen className="w-16 h-16 text-gray-700 mb-4" />
+                <p className="text-gray-600 text-center">
+                  데일리 브리핑이 없습니다<br />
+                  <span className="text-sm text-gray-700">오늘 마감 버튼을 눌러 하루 작업을 마감하면 여기에 기록됩니다</span>
+                </p>
+              </div>
+            ) : (
+              briefings.map((b) => (
+                <div key={b.date} className="rounded-xl border border-gray-800 bg-gray-900/30 overflow-hidden">
+                  {/* 날짜 헤더 */}
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/50">
+                    <div className="flex items-center gap-3">
+                      <BookOpen className="w-5 h-5 text-orange-400" />
+                      <span className="text-lg font-semibold text-white">{b.date}</span>
+                    </div>
+                    <div className="flex gap-4 text-sm text-gray-400">
+                      <span>운송장 <strong className="text-white">{b.totals.waybills.toLocaleString()}건</strong></span>
+                      <span>수량 <strong className="text-white">{b.totals.quantity.toLocaleString()}개</strong></span>
+                      <span>배차 <strong className="text-white">{b.totals.batchCount}회</strong></span>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-8 rounded-xl border border-gray-800 bg-gray-900/30 text-center">
-              <p className="text-gray-600">아직 작업 중인 스테이션이 없습니다</p>
-              <p className="text-gray-700 text-sm mt-1">스테이션에서 운송장 스캔을 시작하면 여기에 실시간으로 표시됩니다</p>
-            </div>
-          )}
-        </div>
+
+                  {/* 배차별 요약 */}
+                  {b.batches.length > 0 && (
+                    <div className="px-6 py-4 border-b border-gray-800">
+                      <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">배차 내역</p>
+                      <div className="space-y-2">
+                        {b.batches.map((batch) => (
+                          <div key={batch.uploadId} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-300 truncate max-w-xs">{batch.fileName}</span>
+                            <div className="flex gap-4 text-gray-500 shrink-0">
+                              <span>{batch.totalWaybills.toLocaleString()}건</span>
+                              <span>{batch.totalQuantity.toLocaleString()}개</span>
+                              <span>{batch.totalSku} SKU</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 스테이션별 작업 시간 */}
+                  {b.stations.length > 0 && (
+                    <div className="px-6 py-4">
+                      <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">스테이션별 실적</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        {b.stations.map((s) => {
+                          const stationNum = parseInt(s.stationId.replace('station-', ''));
+                          const color = ZONE_COLORS[(stationNum - 1) % ZONE_COLORS.length];
+                          return (
+                            <div
+                              key={s.stationId}
+                              className="p-3 rounded-lg border text-sm"
+                              style={{ borderColor: color.primary + '40', backgroundColor: color.background + '20' }}
+                            >
+                              <p className="font-semibold text-white mb-2" style={{ color: color.primary }}>
+                                스테이션 {stationNum}
+                              </p>
+                              <p className="text-gray-300">{s.processedWaybills.toLocaleString()}건</p>
+                              <p className="text-gray-400 text-xs">{s.totalQuantity.toLocaleString()}개</p>
+                              {s.holdCount > 0 && (
+                                <p className="text-orange-400 text-xs">보류 {s.holdCount}건</p>
+                              )}
+                              {s.workDurationMinutes !== null && (
+                                <p className="text-gray-500 text-xs mt-1">
+                                  {Math.floor(s.workDurationMinutes / 60) > 0
+                                    ? `${Math.floor(s.workDurationMinutes / 60)}시간 ${s.workDurationMinutes % 60}분`
+                                    : `${s.workDurationMinutes}분`}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
         {/* 계정 관리 모달 */}
         <AccountModal
           isOpen={showAccountModal}
