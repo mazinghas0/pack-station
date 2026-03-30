@@ -48,6 +48,7 @@ export default function StationWorkPage() {
   const [selectedCell, setSelectedCell] = useState<CellData | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [firestoreError, setFirestoreError] = useState(false);
+  const [showDistributionModal, setShowDistributionModal] = useState(false);
 
   /** 배차 ID 로딩 — 스테이션 전용 배차 우선, 없으면 활성 배차 사용 */
   useEffect(() => {
@@ -143,6 +144,23 @@ export default function StationWorkPage() {
     pending: scannedCount - completedCount - holdCount,
   }), [scannedCount, completedCount, holdCount]);
 
+  /** 분배 시작 모달 통계 */
+  const distSummary = useMemo(() => {
+    const waybillCount = cells.length;
+    const customerCount = new Set(cells.map((c) => c.customerName).filter(Boolean)).size;
+    const allProducts = cells.flatMap((c) => c.products ?? []);
+    const skuCount = new Set(allProducts.map((p) => p.productBarcode)).size;
+    const totalQty = allProducts.reduce((sum, p) => sum + p.requiredQuantity, 0);
+    return { waybillCount, customerCount, skuCount, totalQty };
+  }, [cells]);
+
+  /** 운송장 99개 모두 배정 시 분배 시작 모달 자동 표시 */
+  useEffect(() => {
+    if (scannedCount === TOTAL_CELLS && scanMode === 'waybill') {
+      setShowDistributionModal(true);
+    }
+  }, [scannedCount, scanMode]);
+
   /** ===== 운송장 스캔 처리 ===== */
   const processWaybillScan = useCallback(async (waybillNumber: string) => {
     if (!uploadId || isProcessingRef.current) return;
@@ -158,7 +176,7 @@ export default function StationWorkPage() {
 
       if (nextCellNumber > TOTAL_CELLS) {
         playScanError();
-        setStatusMessage(`${TOTAL_CELLS}셀이 모두 배정되었습니다. 상품분배 모드로 전환하세요.`);
+        setStatusMessage(`${TOTAL_CELLS}셀이 모두 배정되었습니다.`);
         setStatusType('error');
         return;
       }
@@ -738,6 +756,54 @@ export default function StationWorkPage() {
         isOpen={showSearch}
         onClose={() => setShowSearch(false)}
       />
+
+      {/* 분배 시작 확인 모달 */}
+      {showDistributionModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-800">
+              <p className="text-xs text-gray-500 mb-1">운송장 배정 완료</p>
+              <h2 className="text-lg font-bold text-white">분배 작업을 시작하시겠습니까?</h2>
+            </div>
+            <div className="grid grid-cols-2 gap-px bg-gray-800 mx-6 my-5 rounded-xl overflow-hidden">
+              <div className="bg-gray-900 px-4 py-3 text-center">
+                <p className="text-xs text-gray-500 mb-1">운송장</p>
+                <p className="text-2xl font-bold text-white">{distSummary.waybillCount}</p>
+              </div>
+              <div className="bg-gray-900 px-4 py-3 text-center">
+                <p className="text-xs text-gray-500 mb-1">고객</p>
+                <p className="text-2xl font-bold text-white">{distSummary.customerCount}</p>
+              </div>
+              <div className="bg-gray-900 px-4 py-3 text-center">
+                <p className="text-xs text-gray-500 mb-1">SKU</p>
+                <p className="text-2xl font-bold text-white">{distSummary.skuCount}</p>
+              </div>
+              <div className="bg-gray-900 px-4 py-3 text-center">
+                <p className="text-xs text-gray-500 mb-1">총 상품</p>
+                <p className="text-2xl font-bold text-white">{distSummary.totalQty}</p>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 pb-5">
+              <button
+                onClick={() => setShowDistributionModal(false)}
+                className="flex-1 py-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  setShowDistributionModal(false);
+                  setScanMode('sku');
+                  setTimeout(() => scanInputRef.current?.focus(), 50);
+                }}
+                className="flex-1 py-2.5 rounded-lg bg-yellow-600 hover:bg-yellow-500 text-white text-sm font-bold transition-colors"
+              >
+                시작
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 셀 상세 모달 */}
       {selectedCell && (
