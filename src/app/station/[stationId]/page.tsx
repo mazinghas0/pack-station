@@ -428,23 +428,33 @@ export default function StationWorkPage() {
         </div>
 
         {/* 진행률 */}
-        <div className="flex items-center gap-6">
-          <div className="text-center">
-            <p className="text-xs text-gray-500">스캔</p>
-            <p className="text-2xl font-bold text-white">
-              {scannedCount}<span className="text-sm text-gray-500">/{cells.length || TOTAL_CELLS}</span>
-            </p>
+        <div className="flex items-center gap-3">
+          {/* 통계 숫자 — 데스크탑만 표시 */}
+          <div className="hidden sm:flex items-center gap-3 text-sm">
+            <span className="text-gray-500">완료 <span className="font-bold text-green-400">{completedCount}</span></span>
+            <span className="text-gray-500">작업중 <span className="font-bold text-blue-400">{batchSummary.pending}</span></span>
+            {holdCount > 0 && (
+              <span className="text-gray-500">대기 <span className="font-bold text-orange-400">{holdCount}</span></span>
+            )}
+            <span className="text-gray-600 text-xs">/ {TOTAL_CELLS}</span>
           </div>
-          {holdCount > 0 && (
-            <div className="text-center">
-              <p className="text-xs text-orange-400/60">보충대기</p>
-              <p className="text-lg font-bold text-orange-400">{holdCount}</p>
-            </div>
-          )}
-          <div className="w-36 h-3 rounded-full bg-gray-800">
+          {/* 모바일 간략 표시 */}
+          <div className="sm:hidden text-sm font-bold text-white">
+            {completedCount}<span className="text-gray-500 font-normal">/{TOTAL_CELLS}</span>
+          </div>
+          {/* 4색 누적 바 */}
+          <div className="w-36 h-2.5 rounded-full bg-gray-800 overflow-hidden flex">
             <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${(scannedCount / (cells.length || TOTAL_CELLS)) * 100}%`, backgroundColor: stationColor.primary }}
+              className="h-full transition-all duration-300 bg-green-500"
+              style={{ width: `${(completedCount / TOTAL_CELLS) * 100}%` }}
+            />
+            <div
+              className="h-full transition-all duration-300 bg-blue-500"
+              style={{ width: `${(batchSummary.pending / TOTAL_CELLS) * 100}%` }}
+            />
+            <div
+              className="h-full transition-all duration-300 bg-orange-500"
+              style={{ width: `${(holdCount / TOTAL_CELLS) * 100}%` }}
             />
           </div>
         </div>
