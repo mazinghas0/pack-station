@@ -13,6 +13,7 @@ import {
   limit,
   deleteDoc,
   runTransaction,
+  getCountFromServer,
   type Unsubscribe,
   type DocumentReference,
   type DocumentData,
@@ -762,7 +763,7 @@ export async function getDailyBriefings(): Promise<DailyBriefing[]> {
   return snap.docs.map((d) => d.data() as DailyBriefing);
 }
 
-/** 24시간 지난 업로드 자동 정리 (admin 진입 시 백그라운드 실행) */
+/** 24시간 지난 업로드 자동 정리 — cells + waybillLocks + orders + uploads 전부 삭제 */
 export async function cleanupExpiredUploads(): Promise<void> {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const q = query(collection(db, 'uploads'), orderBy('createdAt', 'asc'));
@@ -779,7 +780,23 @@ export async function cleanupExpiredUploads(): Promise<void> {
   for (const uploadDoc of expired) {
     const uploadId = uploadDoc.data().id as string;
 
-    /** 해당 uploadId의 orders 삭제 */
+    /** cells + waybillLocks 삭제 */
+    const cellsSnap = await getDocs(
+      query(collection(db, 'cells'), where('uploadId', '==', uploadId))
+    );
+    for (let i = 0; i < cellsSnap.docs.length; i += batchSize) {
+      const wb = writeBatch(db);
+      for (const d of cellsSnap.docs.slice(i, i + batchSize)) {
+        wb.delete(d.ref);
+        const waybill = d.data().waybillNumber as string | undefined;
+        if (waybill) {
+          wb.delete(doc(db, 'waybillLocks', `${uploadId}_${waybill}`));
+        }
+      }
+      await wb.commit();
+    }
+
+    /** orders 삭제 */
     const ordersSnap = await getDocs(
       query(collection(db, 'orders'), where('uploadId', '==', uploadId))
     );
@@ -792,4 +809,34 @@ export async function cleanupExpiredUploads(): Promise<void> {
     /** upload 문서 삭제 */
     await deleteDoc(uploadDoc.ref);
   }
+}
+
+/** 30일 초과 데일리 브리핑 자동 삭제 */
+export async function cleanupOldDailyReports(): Promise<void> {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const snap = await getDocs(query(collection(db, 'dailyReports'), orderBy('createdAt', 'asc')));
+  const old = snap.docs.filter((d) => (d.data().createdAt as number) < cutoff);
+  if (old.length === 0) return;
+  const wb = writeBatch(db);
+  for (const d of old) wb.delete(d.ref);
+  await wb.commit();
+}
+
+/** Firestore 데이터 현황 (카운트만, 빠른 집계 쿼리 사용) */
+export async function getDataStats(): Promise<{ cells: number; orders: number; uploads: number; oldestReport: string | null }> {
+  const [cellsCount, ordersCount, uploadsCount, reportsSnap] = await Promise.all([
+    getCountFromServer(collection(db, 'cells')),
+    getCountFromServer(collection(db, 'orders')),
+    getCountFromServer(collection(db, 'uploads')),
+    getDocs(query(collection(db, 'dailyReports'), orderBy('createdAt', 'desc'), limit(1))),
+  ]);
+
+  const lastReport = reportsSnap.docs[0]?.data().date as string | undefined;
+
+  return {
+    cells: cellsCount.data().count,
+    orders: ordersCount.data().count,
+    uploads: uploadsCount.data().count,
+    oldestReport: lastReport ?? null,
+  };
 }

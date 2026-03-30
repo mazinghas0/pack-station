@@ -5,7 +5,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2,
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData, UploadSummary, DailyBriefing } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, autoAssignToStation, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, cleanupOldDailyReports, autoAssignToStation, getDataStats, type StationSummary } from '@/lib/firestore';
 import { useAuth } from '@/components/authProvider';
 import { canManageAccounts } from '@/lib/auth';
 import AccountModal from '@/components/accountModal';
@@ -33,6 +33,7 @@ export default function AdminPage() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [autoAssignResult, setAutoAssignResult] = useState<string | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
+  const [dataStats, setDataStats] = useState<{ cells: number; orders: number; uploads: number; oldestReport: string | null } | null>(null);
   const { user: currentUser } = useAuth();
 
   /** 활성 배차 + 최근 업로드 목록 + 브리핑 로드 / 24시간 만료 데이터 백그라운드 정리 */
@@ -51,6 +52,8 @@ export default function AdminPage() {
       setRecentUploads(recent);
       setBriefings(briefs);
       cleanupExpiredUploads().catch(() => {}); // 백그라운드 실행, 오류 무시
+      cleanupOldDailyReports().catch(() => {}); // 30일 초과 브리핑 정리
+      getDataStats().then(setDataStats).catch(() => {});
     })();
   }, []);
 
@@ -274,6 +277,32 @@ export default function AdminPage() {
         </div>
 
         {activeTab === 'upload' && (<>
+        {/* Firestore 데이터 현황 */}
+        {dataStats && (
+          <div className="flex flex-wrap gap-3 mb-6 p-4 rounded-xl bg-gray-900/50 border border-gray-800">
+            <div className="flex items-center gap-2 text-sm">
+              <Database className="w-4 h-4 text-gray-500" />
+              <span className="text-gray-500">DB 현황</span>
+            </div>
+            <div className="flex flex-wrap gap-4 ml-auto">
+              <span className="text-sm text-gray-400">
+                셀 <span className={`font-bold ${dataStats.cells > 500 ? 'text-orange-400' : 'text-white'}`}>{dataStats.cells.toLocaleString()}</span>건
+              </span>
+              <span className="text-sm text-gray-400">
+                주문 <span className="font-bold text-white">{dataStats.orders.toLocaleString()}</span>건
+              </span>
+              <span className="text-sm text-gray-400">
+                배차 <span className="font-bold text-white">{dataStats.uploads}</span>개
+              </span>
+              {dataStats.oldestReport && (
+                <span className="text-sm text-gray-400">
+                  마지막 마감 <span className="font-bold text-white">{dataStats.oldestReport}</span>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
           {/* 좌측: 엑셀 업로드 */}
           <div className="space-y-6">
