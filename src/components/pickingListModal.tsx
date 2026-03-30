@@ -66,10 +66,10 @@ export default function PickingListModal({ isOpen, onClose, cells, stationNum }:
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center print:relative print:inset-auto print:block print:z-auto">
       <div className="absolute inset-0 bg-black/70 no-print" onClick={onClose} />
 
-      <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl mx-4 print:max-w-none print:max-h-none print:m-0 print:rounded-none print:border-none print:bg-white print:shadow-none">
+      <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl mx-4 print:max-w-none print:max-h-none print:overflow-visible print:m-0 print:rounded-none print:border-none print:bg-white print:shadow-none">
         {/* 헤더 */}
         <div className="sticky top-0 flex items-center justify-between p-5 border-b border-gray-800 bg-gray-900 rounded-t-2xl z-10 print:bg-white print:border-gray-300 print:rounded-none print:static">
           <div>
