@@ -567,21 +567,49 @@ export async function searchByWaybill(waybillNumber: string): Promise<CellData |
   return snapshot.docs[0].data() as CellData;
 }
 
-/** 통합 검색 — 전체 셀에서 운송장/고객명/SKU 검색 (크로스 스테이션) */
+/** 통합 검색 — 운송장/고객명은 인덱스 프리픽스 쿼리, 상품은 결과 없을 때만 전체 스캔 */
 export async function searchCells(keyword: string): Promise<CellData[]> {
-  const snapshot = await getDocs(collection(db, 'cells'));
-  const allCells = snapshot.docs.map((d) => d.data() as CellData);
-  const lower = keyword.toLowerCase();
+  const end = keyword + '\uf8ff';
 
-  return allCells.filter((cell) => {
-    if (cell.waybillNumber?.toLowerCase().includes(lower)) return true;
-    if (cell.customerName?.toLowerCase().includes(lower)) return true;
-    if (cell.products?.some((p) =>
-      p.productBarcode?.toLowerCase().includes(lower) ||
-      p.productName?.toLowerCase().includes(lower)
-    )) return true;
-    return false;
-  });
+  const [waybillSnap, customerSnap] = await Promise.all([
+    getDocs(query(
+      collection(db, 'cells'),
+      where('waybillNumber', '>=', keyword),
+      where('waybillNumber', '<=', end),
+    )),
+    getDocs(query(
+      collection(db, 'cells'),
+      where('customerName', '>=', keyword),
+      where('customerName', '<=', end),
+    )),
+  ]);
+
+  const seen = new Set<string>();
+  const results: CellData[] = [];
+
+  for (const snap of [waybillSnap, customerSnap]) {
+    for (const d of snap.docs) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        results.push(d.data() as CellData);
+      }
+    }
+  }
+
+  if (results.length > 0) return results;
+
+  // 운송장·고객명 결과 없을 때만 상품 바코드/이름 전체 스캔 (fallback)
+  const lower = keyword.toLowerCase();
+  const allSnap = await getDocs(collection(db, 'cells'));
+  return allSnap.docs
+    .map((d) => d.data() as CellData)
+    .filter((cell) =>
+      cell.products?.some(
+        (p) =>
+          p.productBarcode?.toLowerCase().includes(lower) ||
+          p.productName?.toLowerCase().includes(lower),
+      ),
+    );
 }
 
 /** 셀 보충 대기(hold) 상태로 변경 */
