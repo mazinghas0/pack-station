@@ -105,12 +105,16 @@ export default function AdminPage() {
 
   /** 이전 배차 활성화 */
   const handleActivateUpload = useCallback(async (uploadId: string, fileName: string) => {
-    await setActiveUpload(uploadId, fileName);
-    setActiveUploadId(uploadId);
-    const upload = recentUploads.find((u) => u.id === uploadId);
-    if (upload) {
-      setExistingUpload(upload);
-      setSavedUploadId(uploadId);
+    try {
+      await setActiveUpload(uploadId, fileName);
+      setActiveUploadId(uploadId);
+      const upload = recentUploads.find((u) => u.id === uploadId);
+      if (upload) {
+        setExistingUpload(upload);
+        setSavedUploadId(uploadId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '배차 활성화 실패 — 다시 시도해주세요');
     }
   }, [recentUploads]);
 
@@ -150,6 +154,7 @@ export default function AdminPage() {
     );
     if (!ok) return;
     setClosingDay(true);
+    setError(null);
     try {
       const briefing = await generateDailyBriefing(today);
       setBriefings((prev) => [briefing, ...prev]);
@@ -158,6 +163,8 @@ export default function AdminPage() {
       setSavedUploadId(null);
       setActiveUploadId(null);
       setActiveTab('briefing');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '마감 처리 실패 — 다시 시도해주세요');
     } finally {
       setClosingDay(false);
     }

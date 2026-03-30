@@ -46,6 +46,8 @@ export default function StationWorkPage() {
   const [newBatchReady, setNewBatchReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedCell, setSelectedCell] = useState<CellData | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
+  const [firestoreError, setFirestoreError] = useState(false);
 
   /** 배차 ID 로딩 — 스테이션 전용 배차 우선, 없으면 활성 배차 사용 */
   useEffect(() => {
@@ -76,14 +78,32 @@ export default function StationWorkPage() {
   /** Firebase 실시간 셀 구독 — uploadId 확정 후에만 구독 시작 */
   useEffect(() => {
     if (!uploadId) return;
-    const unsubscribe = subscribeToCells(stationId, uploadId, (firestoreCells) => {
-      setCells(firestoreCells);
-      if (localCellCountRef.current === null) {
-        localCellCountRef.current = firestoreCells.length;
-      }
-    });
+    const unsubscribe = subscribeToCells(
+      stationId,
+      uploadId,
+      (firestoreCells) => {
+        setFirestoreError(false);
+        setCells(firestoreCells);
+        if (localCellCountRef.current === null) {
+          localCellCountRef.current = firestoreCells.length;
+        }
+      },
+      () => setFirestoreError(true),
+    );
     return () => unsubscribe();
   }, [stationId, uploadId]);
+
+  /** 네트워크 온/오프라인 감지 */
+  useEffect(() => {
+    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => setIsOffline(false);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
 
   /** 전체화면 상태 동기화 */
   useEffect(() => {
@@ -170,12 +190,18 @@ export default function StationWorkPage() {
   /** ===== SKU 패킹 완료 처리 ===== */
   const handleCompleteSku = useCallback(async () => {
     if (!focusedProduct) return;
-    const cellNumbers = focusedProduct.matchingCells.map((c) => c.cellNumber);
-    await completeSkuForCells(stationId, cellNumbers, focusedProduct.productBarcode, cells);
-    playScanSuccess();
-    setStatusMessage(`${focusedProduct.productName} 패킹 완료 처리됐습니다.`);
-    setStatusType('success');
-    setFocusedProduct(null);
+    try {
+      const cellNumbers = focusedProduct.matchingCells.map((c) => c.cellNumber);
+      await completeSkuForCells(stationId, cellNumbers, focusedProduct.productBarcode, cells);
+      playScanSuccess();
+      setStatusMessage(`${focusedProduct.productName} 패킹 완료 처리됐습니다.`);
+      setStatusType('success');
+      setFocusedProduct(null);
+    } catch {
+      playScanError();
+      setStatusMessage('패킹 완료 처리 실패 — 다시 시도해주세요');
+      setStatusType('error');
+    }
   }, [focusedProduct, stationId, cells]);
 
   /** ===== SKU 스캔 처리 ===== */
@@ -355,6 +381,16 @@ export default function StationWorkPage() {
 
   return (
     <main className="min-h-screen bg-black flex flex-col">
+      {/* 네트워크/Firestore 오류 배너 */}
+      {(isOffline || firestoreError) && (
+        <div className="no-print flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {isOffline
+            ? '네트워크 연결 없음 — 인터넷 연결을 확인해주세요'
+            : 'Firebase 연결 오류 — 페이지를 새로고침해주세요'}
+        </div>
+      )}
+
       {/* 상단 바 */}
       <header className="no-print flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-950">
         <div className="flex items-center gap-3">

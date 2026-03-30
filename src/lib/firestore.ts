@@ -393,7 +393,8 @@ export async function autoAssignToStation(
 export function subscribeToCells(
   stationId: string,
   uploadId: string,
-  callback: (cells: CellData[]) => void
+  callback: (cells: CellData[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(
     collection(db, 'cells'),
@@ -401,11 +402,15 @@ export function subscribeToCells(
     where('uploadId', '==', uploadId)
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const cells: CellData[] = snapshot.docs.map((d) => d.data() as CellData);
-    cells.sort((a, b) => a.cellNumber - b.cellNumber);
-    callback(cells);
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const cells: CellData[] = snapshot.docs.map((d) => d.data() as CellData);
+      cells.sort((a, b) => a.cellNumber - b.cellNumber);
+      callback(cells);
+    },
+    (err) => onError?.(err),
+  );
 }
 
 /** 셀 데이터 타입 (Firestore 문서) */
