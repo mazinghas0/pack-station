@@ -200,3 +200,8 @@ export function canAccessAdmin(user: UserInfo | null): boolean {
 export function canManageAccounts(user: UserInfo | null): boolean {
   return user?.role === 'master' || user?.role === 'admin';
 }
+
+/** 권한 체크: 데이터 삭제·정산 가능 여부 (마스터 전용) */
+export function canDeleteData(user: UserInfo | null): boolean {
+  return user?.role === 'master';
+}

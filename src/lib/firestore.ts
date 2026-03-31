@@ -127,9 +127,9 @@ export async function getActiveUpload(): Promise<{ id: string; fileName: string;
   };
 }
 
-/** 최근 업로드 목록 조회 (최대 10건) */
+/** 최근 업로드 목록 조회 (최대 30건) */
 export async function getRecentUploads(): Promise<UploadSummary[]> {
-  const q = query(collection(db, 'uploads'), orderBy('createdAt', 'desc'), limit(10));
+  const q = query(collection(db, 'uploads'), orderBy('createdAt', 'desc'), limit(30));
   const snapshot = await getDocs(q);
   return snapshot.docs.map((d) => {
     const data = d.data();
@@ -763,52 +763,35 @@ export async function getDailyBriefings(): Promise<DailyBriefing[]> {
   return snap.docs.map((d) => d.data() as DailyBriefing);
 }
 
-/** 24시간 지난 업로드 자동 정리 — cells + waybillLocks + orders + uploads 전부 삭제 */
-export async function cleanupExpiredUploads(): Promise<void> {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  const q = query(collection(db, 'uploads'), orderBy('createdAt', 'asc'));
-  const snap = await getDocs(q);
-
-  const expired = snap.docs.filter((d) => {
-    const ms: number = d.data().createdAt?.toMillis?.() ?? 0;
-    return ms > 0 && ms < cutoff;
-  });
-
-  if (expired.length === 0) return;
-
+/** 특정 배차 데이터 삭제 (마스터 전용 수동 삭제) — cells + waybillLocks + orders + upload */
+export async function deleteUploadBatch(uploadId: string): Promise<void> {
   const batchSize = 450;
-  for (const uploadDoc of expired) {
-    const uploadId = uploadDoc.data().id as string;
 
-    /** cells + waybillLocks 삭제 */
-    const cellsSnap = await getDocs(
-      query(collection(db, 'cells'), where('uploadId', '==', uploadId))
-    );
-    for (let i = 0; i < cellsSnap.docs.length; i += batchSize) {
-      const wb = writeBatch(db);
-      for (const d of cellsSnap.docs.slice(i, i + batchSize)) {
-        wb.delete(d.ref);
-        const waybill = d.data().waybillNumber as string | undefined;
-        if (waybill) {
-          wb.delete(doc(db, 'waybillLocks', `${uploadId}_${waybill}`));
-        }
+  const cellsSnap = await getDocs(
+    query(collection(db, 'cells'), where('uploadId', '==', uploadId))
+  );
+  for (let i = 0; i < cellsSnap.docs.length; i += batchSize) {
+    const wb = writeBatch(db);
+    for (const d of cellsSnap.docs.slice(i, i + batchSize)) {
+      wb.delete(d.ref);
+      const waybill = d.data().waybillNumber as string | undefined;
+      if (waybill) {
+        wb.delete(doc(db, 'waybillLocks', `${uploadId}_${waybill}`));
       }
-      await wb.commit();
     }
-
-    /** orders 삭제 */
-    const ordersSnap = await getDocs(
-      query(collection(db, 'orders'), where('uploadId', '==', uploadId))
-    );
-    for (let i = 0; i < ordersSnap.docs.length; i += batchSize) {
-      const wb = writeBatch(db);
-      for (const d of ordersSnap.docs.slice(i, i + batchSize)) wb.delete(d.ref);
-      await wb.commit();
-    }
-
-    /** upload 문서 삭제 */
-    await deleteDoc(uploadDoc.ref);
+    await wb.commit();
   }
+
+  const ordersSnap = await getDocs(
+    query(collection(db, 'orders'), where('uploadId', '==', uploadId))
+  );
+  for (let i = 0; i < ordersSnap.docs.length; i += batchSize) {
+    const wb = writeBatch(db);
+    for (const d of ordersSnap.docs.slice(i, i + batchSize)) wb.delete(d.ref);
+    await wb.commit();
+  }
+
+  await deleteDoc(doc(db, 'uploads', uploadId));
 }
 
 /** 30일 초과 데일리 브리핑 자동 삭제 */

@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor, Shield, BookOpen, Clock } from 'lucide-react';
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2, Database, Monitor, Shield, BookOpen, Clock, Trash2, BarChart2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData, UploadSummary, DailyBriefing } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupExpiredUploads, cleanupOldDailyReports, autoAssignToStation, getDataStats, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupOldDailyReports, autoAssignToStation, getDataStats, deleteUploadBatch, type StationSummary } from '@/lib/firestore';
 import { useAuth } from '@/components/authProvider';
-import { canManageAccounts } from '@/lib/auth';
+import { canManageAccounts, canDeleteData } from '@/lib/auth';
 import AccountModal from '@/components/accountModal';
 
 export default function AdminPage() {
@@ -24,7 +24,9 @@ export default function AdminPage() {
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [recentUploads, setRecentUploads] = useState<UploadSummary[]>([]);
   const [briefings, setBriefings] = useState<DailyBriefing[]>([]);
-  const [activeTab, setActiveTab] = useState<'upload' | 'briefing'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'briefing' | 'data'>('upload');
+  const [selectedUploadIds, setSelectedUploadIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
   const [autoAssignConfig, setAutoAssignConfig] = useState([
     { stationId: 'station-1', label: '스테이션 1', count: 99 },
@@ -51,7 +53,6 @@ export default function AdminPage() {
       }
       setRecentUploads(recent);
       setBriefings(briefs);
-      cleanupExpiredUploads().catch(() => {}); // 백그라운드 실행, 오류 무시
       cleanupOldDailyReports().catch(() => {}); // 30일 초과 브리핑 정리
       getDataStats().then(setDataStats).catch(() => {});
     })();
@@ -193,6 +194,53 @@ export default function AdminPage() {
     }
   }, [activeUploadId, autoAssignConfig]);
 
+  /** 선택 배차 삭제 */
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedUploadIds.size === 0) return;
+    const ok = confirm(`선택한 ${selectedUploadIds.size}개 배차 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`);
+    if (!ok) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      for (const id of selectedUploadIds) {
+        await deleteUploadBatch(id);
+      }
+      const recent = await getRecentUploads();
+      setRecentUploads(recent);
+      setSelectedUploadIds(new Set());
+      getDataStats().then(setDataStats).catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '삭제 실패 — 다시 시도해주세요');
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedUploadIds]);
+
+  /** 선택 배차 정산 후 삭제 */
+  const handleSettleAndDelete = useCallback(async () => {
+    if (selectedUploadIds.size === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const ok = confirm(`선택한 ${selectedUploadIds.size}개 배차를 정산하고 삭제하시겠습니까?`);
+    if (!ok) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await generateDailyBriefing(today);
+      for (const id of selectedUploadIds) {
+        await deleteUploadBatch(id);
+      }
+      const [recent, briefs] = await Promise.all([getRecentUploads(), getDailyBriefings()]);
+      setRecentUploads(recent);
+      setBriefings(briefs);
+      setSelectedUploadIds(new Set());
+      getDataStats().then(setDataStats).catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '정산 실패 — 다시 시도해주세요');
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedUploadIds]);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const droppedFile = e.dataTransfer.files[0];
@@ -274,6 +322,19 @@ export default function AdminPage() {
               </span>
             )}
           </button>
+          {canDeleteData(currentUser) && (
+            <button
+              onClick={() => setActiveTab('data')}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === 'data'
+                  ? 'border-red-500 text-red-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              데이터 관리
+            </button>
+          )}
         </div>
 
         {activeTab === 'upload' && (<>
@@ -621,6 +682,107 @@ export default function AdminPage() {
             )}
           </div>
         </>)}
+
+        {/* 데이터 관리 탭 — 마스터 전용 */}
+        {activeTab === 'data' && canDeleteData(currentUser) && (
+          <div className="space-y-6">
+            {/* DB 현황 */}
+            {dataStats && (
+              <div className="flex flex-wrap gap-4 p-4 rounded-xl bg-gray-900/50 border border-gray-800 text-sm">
+                <span className="text-gray-400">셀 <span className={`font-bold ${dataStats.cells > 500 ? 'text-orange-400' : 'text-white'}`}>{dataStats.cells.toLocaleString()}</span>건</span>
+                <span className="text-gray-400">주문 <span className="font-bold text-white">{dataStats.orders.toLocaleString()}</span>건</span>
+                <span className="text-gray-400">배차 <span className="font-bold text-white">{dataStats.uploads}</span>개</span>
+                {dataStats.oldestReport && (
+                  <span className="text-gray-400">마지막 정산 <span className="font-bold text-white">{dataStats.oldestReport}</span></span>
+                )}
+              </div>
+            )}
+
+            {/* 배차 선택 목록 */}
+            <div className="rounded-xl border border-gray-800 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-900/60">
+                <p className="text-sm font-medium text-gray-300">배차 목록</p>
+                <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 accent-red-500"
+                    checked={selectedUploadIds.size === recentUploads.length && recentUploads.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedUploadIds(new Set(recentUploads.map((u) => u.id)));
+                      } else {
+                        setSelectedUploadIds(new Set());
+                      }
+                    }}
+                  />
+                  전체 선택
+                </label>
+              </div>
+              {recentUploads.length === 0 ? (
+                <div className="p-8 text-center text-gray-600 text-sm">배차 데이터가 없습니다</div>
+              ) : (
+                <div className="divide-y divide-gray-800">
+                  {recentUploads.map((u) => (
+                    <label key={u.id} className="flex items-center gap-4 px-4 py-3 hover:bg-gray-800/40 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="w-4 h-4 accent-red-500 shrink-0"
+                        checked={selectedUploadIds.has(u.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedUploadIds);
+                          if (e.target.checked) next.add(u.id);
+                          else next.delete(u.id);
+                          setSelectedUploadIds(next);
+                        }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium truncate">{u.fileName}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          운송장 {u.uniqueWaybills}건 · 상품 {u.totalQuantity}개
+                          {u.id === activeUploadId && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">활성</span>
+                          )}
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-600 shrink-0">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleDateString('ko-KR') : ''}
+                      </p>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 액션 버튼 */}
+            {selectedUploadIds.size > 0 && (
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleSettleAndDelete}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-600/20 hover:bg-orange-600/40 border border-orange-500/30 text-orange-400 text-sm font-medium transition-colors disabled:opacity-40"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart2 className="w-4 h-4" />}
+                  정산 후 삭제 ({selectedUploadIds.size}개)
+                </button>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={deleting}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-400 text-sm font-medium transition-colors disabled:opacity-40"
+                >
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  선택 삭제 ({selectedUploadIds.size}개)
+                </button>
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-center gap-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+                <p className="text-red-400 text-sm">{error}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 데일리 브리핑 탭 */}
         {activeTab === 'briefing' && (
