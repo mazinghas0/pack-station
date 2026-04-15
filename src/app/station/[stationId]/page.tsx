@@ -85,9 +85,10 @@ export default function StationWorkPage() {
       (firestoreCells) => {
         setFirestoreError(false);
         setCells(firestoreCells);
-        if (localCellCountRef.current === null) {
-          localCellCountRef.current = firestoreCells.length;
-        }
+        /** 실시간 셀 변경을 따라가도록 매 스냅샷마다 최대 cellNumber로 보정
+         * (다른 단말이 배정한 번호도 반영되어 CELL_EXISTS 반복 방지) */
+        const maxCell = firestoreCells.reduce((m, c) => Math.max(m, c.cellNumber), 0);
+        localCellCountRef.current = maxCell;
       },
       () => setFirestoreError(true),
     );

@@ -5,7 +5,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, ArrowLeft, Loader2,
 import { useRouter } from 'next/navigation';
 import type { ParsedExcelData, UploadSummary, DailyBriefing } from '@/lib/types';
 import { ZONE_COLORS } from '@/lib/types';
-import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupOldDailyReports, autoAssignToStation, getDataStats, deleteUploadBatch, type StationSummary } from '@/lib/firestore';
+import { saveUpload, getActiveUpload, getRecentUploads, setActiveUpload, subscribeToAllStations, generateDailyBriefing, getDailyBriefings, cleanupOldDailyReports, autoAssignToStation, getDataStats, deleteUploadBatch, settleUploadBatches, type StationSummary } from '@/lib/firestore';
 import { useAuth } from '@/components/authProvider';
 import { canManageAccounts, canDeleteData } from '@/lib/auth';
 import AccountModal from '@/components/accountModal';
@@ -194,29 +194,45 @@ export default function AdminPage() {
     }
   }, [activeUploadId, autoAssignConfig]);
 
-  /** 선택 배차 삭제 */
+  /** 선택 배차 삭제 — 부분 성공 허용 + 활성 배차 참조 정리 */
   const handleDeleteSelected = useCallback(async () => {
     if (selectedUploadIds.size === 0) return;
     const ok = confirm(`선택한 ${selectedUploadIds.size}개 배차 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`);
     if (!ok) return;
     setDeleting(true);
     setError(null);
-    try {
-      for (const id of selectedUploadIds) {
+    const targets = Array.from(selectedUploadIds);
+    const succeeded: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+    for (const id of targets) {
+      try {
         await deleteUploadBatch(id);
+        succeeded.push(id);
+      } catch (err) {
+        failed.push({ id, error: err instanceof Error ? err.message : '삭제 실패' });
       }
+    }
+    try {
       const recent = await getRecentUploads();
       setRecentUploads(recent);
-      setSelectedUploadIds(new Set());
+      /** 성공한 것만 선택 해제, 실패한 건 유지 */
+      setSelectedUploadIds(new Set(failed.map((f) => f.id)));
+      /** 활성 배차가 삭제됐으면 UI 상태 리셋 */
+      if (activeUploadId && succeeded.includes(activeUploadId)) {
+        setActiveUploadId(null);
+        setExistingUpload(null);
+        setSavedUploadId(null);
+      }
       getDataStats().then(setDataStats).catch(() => {});
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '삭제 실패 — 다시 시도해주세요');
+      if (failed.length > 0) {
+        setError(`${succeeded.length}건 성공, ${failed.length}건 실패 — ${failed[0].error}`);
+      }
     } finally {
       setDeleting(false);
     }
-  }, [selectedUploadIds]);
+  }, [selectedUploadIds, activeUploadId]);
 
-  /** 선택 배차 정산 후 삭제 */
+  /** 선택 배차 정산 후 삭제 — 선택한 배차만 집계·삭제 */
   const handleSettleAndDelete = useCallback(async () => {
     if (selectedUploadIds.size === 0) return;
     const today = new Date().toISOString().slice(0, 10);
@@ -224,22 +240,25 @@ export default function AdminPage() {
     if (!ok) return;
     setDeleting(true);
     setError(null);
+    const targets = Array.from(selectedUploadIds);
     try {
-      await generateDailyBriefing(today);
-      for (const id of selectedUploadIds) {
-        await deleteUploadBatch(id);
-      }
+      await settleUploadBatches(targets, today);
       const [recent, briefs] = await Promise.all([getRecentUploads(), getDailyBriefings()]);
       setRecentUploads(recent);
       setBriefings(briefs);
       setSelectedUploadIds(new Set());
+      if (activeUploadId && targets.includes(activeUploadId)) {
+        setActiveUploadId(null);
+        setExistingUpload(null);
+        setSavedUploadId(null);
+      }
       getDataStats().then(setDataStats).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : '정산 실패 — 다시 시도해주세요');
     } finally {
       setDeleting(false);
     }
-  }, [selectedUploadIds]);
+  }, [selectedUploadIds, activeUploadId]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
